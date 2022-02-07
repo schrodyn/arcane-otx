@@ -207,15 +207,9 @@ function enrich(n) {
             $http_resp = $privsep.getIndicatorsDomain($n, 'passive_dns')
             $passive_dns = $http_resp."passive_dns"
 
-            for $entry in $passive_dns {
-                $lib.print('loop')
-                if ($entry.address = "NXDOMAIN") {continue}
-                yield $addPassiveDNS($entry)
-            }
-
             $http_resp = $privsep.getIndicatorsDomain($n, 'general')
             $pulses = $http_resp.pulse_info.pulses
-            yield $addPulses($pulses)
+            yield ($pdns($passive_dns), $addPulses($pulses))
         }
         *: {
             $lib.warn("Unsupported form: {form}", form=$n.form())

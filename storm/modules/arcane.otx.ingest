@@ -1,0 +1,231 @@
+/*
+* Arcane OTX Ingest Module.
+* Implements functions to parse and create nodes within cortex.
+*/
+
+init {
+    $privsep = $lib.import(arcane.otx.privsep)
+    // Used to edge back to our meta:source
+    $srcnode = $lib.null
+}
+
+function initMetaSource() {
+
+    /*
+    * if $srcnode has not already been set then retrieve the meta:source
+    * and define the global var $srcnode.
+    */
+    if ($srcnode = $lib.null) {
+        if ($lib.debug) {
+            $lib.print("Setting meta:source={source}", source=$modconf.source)
+        }
+        [ meta:source=$modconf.source :name="arcane-otx" ]
+        $srcnode = $node
+    }
+
+    /*
+    * fini(): stuff here runs *once* after the last node yield (even if
+    * there are no nodes)
+    */
+    fini { return($lib.null) }
+}
+
+function addPassiveDNS(entry) {
+
+    $rtype = $entry."record_type"
+
+    switch $rtype {
+        /*
+        * DNS pedantry.
+        * SOA records from OTX are pretty bad. They don't provide
+        * the full SOA text and will give you an SOA for a
+        * "hostname" which is not a zone meaning you could
+        * mistakenly define an SOA for say record.zone.tld. rather
+        * than zone.tld. There is a difference, people!
+        *
+        * We check for "asset_type": "domain"
+        *
+        * Note: The "address" field of a DNS result is the defined
+        * nameserver within the SOA record.
+        *
+        * The email address is missing.
+        */
+        'SOA': {
+            if ($entry.asset_type = "domain") {
+                $guid = $lib.guid(
+                    $entry.hostname,
+                    $entry.address,
+                    $entry.first,
+                    $entry.last,
+                )
+                [ inet:dns:soa=$guid :fqdn=$entry.hostname :ns=$entry.address]
+            }
+            else {
+                if $lib.debug {
+                    $lib.print(
+                        '{record} ({rtype}) record ignored.',
+                        record=$entry.hostname,
+                        rtype=$rtype
+                    )
+                }
+            }
+        }
+
+        /*
+        * DNS pedantry.
+        * NS records from OTX are pretty bad. They provide NS
+        * records for record.zone.tld. which might not actually be
+        * defined in the real DNS zone itself and seems to just be a
+        * merge of the NS records for zone.tld. down into what OTX
+        * defines as a "hostname" rather than a "domain" asset_type.
+        *
+        * We check for "asset_type": "domain"
+        */
+        'NS': {
+            if ($entry.asset_type = "domain") {
+                [ inet:dns:ns=($entry.hostname, $entry.address) ]
+            }
+            else {
+                if $lib.debug {
+                    $lib.warn(
+                        '{record} ({rtype}) record ignored.',
+                        record=$entry.hostname,
+                        rtype=$rtype
+                    )
+                }
+            }
+        }
+
+        'AAAA': {
+            if $lib.debug { $lib.print('{rtype} type', rtype=$rtype) }
+            [ inet:dns:aaaa?=($entry.hostname, $entry.address) ]
+        }
+
+        /*
+        * TODO: Sometimes OTX DNS records are backwards
+        * The hostname is the IP address and the address is the
+        * hostname:
+        * {
+        *   "address": "gmail.com",
+        *   "first": "2015-05-06T22:00:00",
+        *   "last": "2015-05-06T22:00:00",
+        *   "hostname": "74.125.28.18",
+        *   "record_type": "A",
+        *   "indicator_link": "/indicator/hostname/74.125.28.18",
+        *   "flag_url": "assets/images/flags/us.png",
+        *   "flag_title": "United States",
+        *   "asset_type": "hostname",
+        *   "asn": "AS15169 GOOGLE"
+        * }
+        * Up is down. Left is right! Won't someone please think of the
+        * children!
+        *
+        * WHAT COULD POSSIBLY GO WRONG IF.... we swap around the tuple values?
+        */
+        'A': {
+            if $lib.debug { $lib.print('{rtype} type', rtype=$rtype) }
+            [ inet:dns:a?=($entry.hostname, $entry.address) ]
+        }
+
+        'CNAME': {
+            if $lib.debug { $lib.print('{rtype} type', rtype=$rtype) }
+            [ inet:dns:cname=($entry.hostname, $entry.address) ]
+        }
+
+        'TXT': {
+            $lib.warn('{rtype} type not yet implemented', rtype=$rtype)
+        }
+
+        // While not supported anymore SPF was the record type
+        // before TXT records were settled on for SPF data. For a
+        // time SPF records did exist but it was decided not to use
+        // them because many caching resolvers are too old and do
+        // not support this lookup. It's still useful to check for
+        // their existence in DNS data.
+        'SPF': {
+            $lib.warn('{rtype} type not yet implemented', rtype=$rtype)
+        }
+
+        *: {
+            $lib.warn(
+                'DNS record type ({rtype}) not supported!',
+                rtype=$rtype
+            )
+        }
+    }
+
+    [ .seen?=$entry.first .seen?=$entry.last ]
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+}
+
+function pdns(passive_dns) {
+    for $entry in $passive_dns {
+        if ($entry.address = "NXDOMAIN") {continue}
+        yield $addPassiveDNS($entry)
+    }
+}
+
+function addPulses(pulses) {
+    for $pulse in $pulses {
+        yield $addPulse($pulse)
+    }
+}
+
+// Create media:news from OTX Pulses.
+function addPulse(pulse) {
+
+    $lib.print('addPulse')
+    $guid = $lib.guid(($pulse.id,))
+
+    $url = $lib.str.format(
+        'https://otx.alienvault.com/pulse/{id}',
+        id=$pulse.id
+    )
+
+    [
+        media:news=$guid
+            :url=$url
+            :title=$pulse.name
+            :summary=$pulse.description
+            :author=$pulse.author.username
+            :published=$pulse.created
+    ]
+
+    // references[]
+
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+
+}
+
+function enrich(n) {
+
+    switch $n.form() {
+        "inet:fqdn": {
+            $http_resp = $privsep.getIndicatorsDomain($n, 'passive_dns')
+            $passive_dns = $http_resp."passive_dns"
+            for $entry in $passive_dns {
+                $lib.print('loop')
+                if ($entry.address = "NXDOMAIN") {continue}
+                yield $addPassiveDNS($entry)
+            }
+        }
+        *: {
+            $lib.warn("Unsupported form: {form}", form=$n.form())
+        }
+    }
+
+    switch $n.form() {
+        "inet:fqdn": {
+            $http_resp = $privsep.getIndicatorsDomain($n, 'general')
+            $pulses = $http_resp.pulse_info.pulses
+            yield $addPulses($pulses)
+        }
+        *: {
+            $lib.warn("Unsupported form: {form}", form=$n.form())
+        }
+    }
+}

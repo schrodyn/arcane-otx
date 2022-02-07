@@ -1,0 +1,39 @@
+/*
+* Arcane Observatory - Alienvault OTX Domain Command.
+* Enrich an FQDN from the Alienvault domain API endpoint.
+* Kitchen Sink command.
+*/
+
+// First things first. Always import our dependancies.
+// Enable debugging if requested.
+init {
+    if $cmdopts.debug {
+        $lib.debug = $lib.true
+    }
+    $ingest = $lib.import(arcane.otx.ingest)
+    $privsep = $lib.import(arcane.otx.privsep)
+}
+
+// If there is an inbound node
+if $node {
+
+    if $lib.debug { $lib.print("OTX Domain command.") }
+    $ingest.initMetaSource()
+
+    switch $node.form() {
+        "inet:fqdn": {
+            $http_resp = $privsep.getIndicatorsDomain($node, 'passive_dns')
+            $passive_dns = $http_resp.passive_dns
+            $gendns = $ingest.pdns($passive_dns)
+
+            $http_resp = $privsep.getIndicatorsDomain($node, 'general')
+            $pulses = $http_resp.pulse_info.pulses
+            $genpulses = $ingest.addPulses($pulses)
+        }
+    }
+
+    $lib.print("before loop")
+    for $g in ($gendns, $genpulses) {
+        divert $cmdopts.yield $g
+    }
+}

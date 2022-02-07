@@ -1,0 +1,24 @@
+/*
+* otx.setup.apikey storm command
+*/
+
+// Always check if we should enable debugging.
+init {
+    if $cmdopts.debug {
+        $lib.print("Enabling debug output")
+        $lib.debug = $lib.true
+    }
+}
+
+$setup = $lib.import(arcane.otx.setup)
+
+$lib.print("command: otx.setup.apikey")
+
+if $cmdopts.self {
+    $lib.print("Setting Aracne OTX API key for the current user.")
+}
+else {
+    $lib.print("Setting Arcane OTX API key for all users.")
+}
+
+$setup.setApiKey($cmdopts.apikey, self=$cmdopts.self)

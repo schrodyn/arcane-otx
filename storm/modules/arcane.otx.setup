@@ -1,0 +1,37 @@
+/*
+* Arcane OTX Setup Module.
+* Implements functions to setup API Keys, etc...
+*/
+
+// Define user / global variable key names.
+$apiKeyVar = arcane:otx:apikey
+$baseUrlVar = arcane:otx:baseurl
+
+// Get OTX API Key.
+function getApiKey() {
+
+    // Check for a user key first.
+    $valu = $lib.user.vars.get($apiKeyVar)
+    if $valu {
+        return($valu)
+    }
+
+    // Check for global defined API key.
+    $valu = $lib.globals.get($apiKeyVar)
+    if $valu {
+        return($valu)
+    }
+
+    // No API key found. OMZG!
+    return($lib.null)
+}
+
+// Set user or global OTX API key.
+function setApiKey(valu, self) {
+    if $self {
+        $lib.user.vars.set($apiKeyVar, $valu)
+    }
+    else {
+        $lib.globals.set($apiKeyVar, $valu)
+    }
+}

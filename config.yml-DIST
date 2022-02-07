@@ -1,0 +1,122 @@
+name: arcane-otx
+version: 0.0.6
+license: BSD-2-Clause
+author:
+  name: Conor Quigley
+  url: https://konundrum.org/
+# Defines required role permissions.
+perms:
+  - desc: Controls user access to Arcane OTX pkg.
+    gate: cortex
+    perm:
+      - otx.user
+
+docs:
+  - content: |
+      This package provides Alienvault OTX API support for Synapse.
+      This pkg is in development and is not stable.
+    title: Arcane Observatory Synapse OTX Package.
+
+# Check if we need this
+onload: $lib.import(arcane.otx.mod).initMetaSource()
+
+modules:
+  - name: arcane.otx
+  - name: arcane.otx.setup
+  - name: arcane.otx.ingest
+    modconf:
+      # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      # FOR THE LOVE OF ALL THAT IS HOLY, SET THIS
+      # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+      source: <GUID>
+  - name: arcane.otx.privsep
+    asroot:perms:
+      -
+        - otx.user
+    modconf:
+      api_url: https://otx.alienvault.com/api/v1
+
+commands:
+  - name: otx.setup.apikey
+    descr: Setup Arcane Observatory OTX API Key
+    # Do not allow to run as root.
+    asroot: False
+    # User perms required to acces this command?
+    perms:
+      -
+        - otx.user
+    cmdargs:
+      - - apikey
+        - type: str
+          help: Alienvault OTX Key.
+
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+  - name: otx.pdns
+    descr: Passive DNS data from OTX. Supports inet:fqdn, inet:ipv4 and inet:ipv6
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+    perms:
+      -
+        - otx.user
+    forms:
+      input:
+        - inet:fqdn
+        - inet:ipv4
+        - inet:ipv6
+      output:
+        - inet:fqdn
+        - inet:ipv4
+        - inet:ipv6
+
+  - name: otx.domain
+    descr: Enrich an FQDN from Alienvault OTX Domain API Endpoint.
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+    perms:
+      -
+        - otx.user
+    forms:
+      input:
+        - inet:fqdn
+      output:
+        - inet:fqdn

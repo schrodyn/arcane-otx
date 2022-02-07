@@ -1,0 +1,77 @@
+/*
+* Arcane Observatory - Alienvault OTX Passive DNS Command.
+*/
+
+// First things first. Always import our dependancies.
+// Enable debugging if requested.
+init {
+    if $cmdopts.debug {
+        $lib.debug = $lib.true
+    }
+    $ingest = $lib.import(arcane.otx.ingest)
+    $privsep = $lib.import(arcane.otx.privsep)
+}
+
+// If there is an inbound node
+if $node {
+
+    //$privsep.test()
+    $ingest.initMetaSource()
+
+    // Call privsep HTTP calls.
+    switch $node.form() {
+
+        "inet:fqdn": {
+            if $lib.debug { $lib.print("OTX pDNS for fqdn") }
+
+            $http_resp = $privsep.getIndicatorsDomain($node, 'passive_dns')
+
+            if $lib.debug { $lib.print($http_resp) }
+
+            $passive_dns = $http_resp."passive_dns"
+
+            for $entry in $passive_dns {
+                if ($entry.address = "NXDOMAIN") {continue}
+                divert $cmdopts.yield $ingest.addPassiveDNS($entry)
+            }
+        }
+
+        "inet:ipv4": {
+            if $lib.debug { $lib.print("OTX pDNS for ipv4") }
+
+            $http_resp = $privsep.getIndicatorsIPv4($node, 'passive_dns')
+
+            if $lib.debug { $lib.print($http_resp) }
+
+            $passive_dns = $http_resp."passive_dns"
+
+            for $entry in $passive_dns {
+                if ($entry.address = "NXDOMAIN") {continue}
+                divert $cmdopts.yield $ingest.addPassiveDNS($entry)
+            }
+        }
+
+        "inet:ipv6": {
+            if $lib.debug { $lib.print("OTX pDNS for ipv6") }
+
+            $http_resp = $privsep.getIndicatorsIPv6($node, 'passive_dns')
+
+            if $lib.debug { $lib.print($http_resp) }
+
+            $passive_dns = $http_resp."passive_dns"
+
+            for $entry in $passive_dns {
+                if ($entry.address = "NXDOMAIN") {continue}
+                divert $cmdopts.yield $ingest.addPassiveDNS($entry)
+            }
+        }
+
+        // Default
+        *: {
+            $lib.warn(
+                'You crazy user, {form} is not supported!',
+                form=$node.form()
+            )
+        }
+    }
+}

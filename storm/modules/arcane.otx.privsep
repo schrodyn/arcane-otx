@@ -1,10 +1,10 @@
 /*
-* Arcane OTX Privesp Module
+* Arcane OTX Privsep Module
 * Privileged code goes here
 */
 
 init {
-    if $lib.debug { $lib.print("Arcane OTX Privesp Module") }
+    if $lib.debug { $lib.print("Arcane OTX Privsep Module") }
     /*
     * Import Arcane OTX setup module:
     *  - get API Key functions
@@ -31,15 +31,16 @@ function test() {
 function getIndicatorsDomain(arg_node, section) {
 
     $api_base_url = $modconf.api_url
-    $apikey = $setup.getApiKey()
 
     $domain = $arg_node.repr()
 
-    $lib.print(
-        'Looking up {section} for domain: {domain}',
-        domain=$domain,
-        section=$section
-    )
+    if $lib.debug {
+        $lib.print(
+            'Looking up {section} for domain: {domain}',
+            domain=$domain,
+            section=$section
+        )
+    }
 
     $api_url = $lib.str.format(
         "{api_base_url}/indicators/domain/{domain}/{section}",
@@ -48,41 +49,22 @@ function getIndicatorsDomain(arg_node, section) {
         section=$section
     )
 
-    // TODO: Switch to debug only
-    $lib.print('API URL {url}', url=$api_url)
-
-    $headers = $lib.dict(
-        "Accept" = "application/json",
-        "X-OTX-API-KEY" = $apikey
-    )
-
-    $resp = $lib.inet.http.get($api_url, headers=$headers)
-
-    if ($resp.code != 200) {
-        $lib.warn(
-            "OTX API ({api_url}) returned HTTP code: {code}",
-            api_url=$api_url,
-            code=$resp.code
-        )
-        return($lib.null)
-    }
-
-    return($resp.json())
-
+    return($http_get($api_url))
 }
 
 function getIndicatorsIPv4(arg_node, section) {
 
     $api_base_url = $modconf.api_url
-    $apikey = $setup.getApiKey()
 
     $ipv4 = $arg_node.repr()
 
-    $lib.print(
-        'Looking up {section} for IPv4: {ipv4}',
-        ipv4=$ipv4,
-        section=$section
-    )
+    if $lib.debug {
+        $lib.print(
+            'Looking up {section} for IPv4: {ipv4}',
+            ipv4=$ipv4,
+            section=$section
+        )
+    }
 
     $api_url = $lib.str.format(
         "{api_base_url}/indicators/IPv4/{ipv4}/{section}",
@@ -91,41 +73,22 @@ function getIndicatorsIPv4(arg_node, section) {
         section=$section
     )
 
-    // TODO: Switch to debug only
-    $lib.print('API URL {url}', url=$api_url)
-
-    $headers = $lib.dict(
-        "Accept" = "application/json",
-        "X-OTX-API-KEY" = $apikey
-    )
-
-    $resp = $lib.inet.http.get($api_url, headers=$headers)
-
-    if ($resp.code != 200) {
-        $lib.warn(
-            "OTX API ({api_url}) returned HTTP code: {code}",
-            api_url=$api_url,
-            code=$resp.code
-        )
-        return($lib.null)
-    }
-
-    return($resp.json())
-
+    return($http_get($api_url))
 }
 
 function getIndicatorsIPv6(arg_node, section) {
 
     $api_base_url = $modconf.api_url
-    $apikey = $setup.getApiKey()
 
     $ipv6 = $arg_node.repr()
 
-    $lib.print(
-        'Looking up {section} for IPv6: {ipv6}',
-        ipv6=$ipv6,
-        section=$section
-    )
+    if $lib.debug {
+        $lib.print(
+            'Looking up {section} for IPv6: {ipv6}',
+            ipv6=$ipv6,
+            section=$section
+        )
+    }
 
     $api_url = $lib.str.format(
         "{api_base_url}/indicators/IPv6/{ipv6}/{section}",
@@ -134,15 +97,45 @@ function getIndicatorsIPv6(arg_node, section) {
         section=$section
     )
 
-    // TODO: Switch to debug only
-    $lib.print('API URL {url}', url=$api_url)
+    return($http_get($api_url))
+}
+
+function getPulseIndicators(pulseid, page) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving pulses for {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/{pulseid}/indicators",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    if $lib.debug { $lib.print($api_url) }
+
+    $params = $lib.dict(page=$page)
+
+    return($http_get($api_url, $params))
+}
+
+function http_get(api_url, params=$lib.null) {
+
+    $apikey = $setup.getApiKey()
+
+    if $lib.debug { $lib.print('API URL {url}', url=$api_url) }
 
     $headers = $lib.dict(
         "Accept" = "application/json",
         "X-OTX-API-KEY" = $apikey
     )
 
-    $resp = $lib.inet.http.get($api_url, headers=$headers)
+    $resp = $lib.inet.http.get($api_url, headers=$headers, params=$params)
 
     if ($resp.code != 200) {
         $lib.warn(
@@ -154,5 +147,4 @@ function getIndicatorsIPv6(arg_node, section) {
     }
 
     return($resp.json())
-
 }

@@ -30,7 +30,7 @@ function initMetaSource() {
     fini { return($lib.null) }
 }
 
-function addPassiveDNS(entry) {
+function addDNS(entry) {
 
     $rtype = $entry."record_type"
 
@@ -160,24 +160,32 @@ function addPassiveDNS(entry) {
     return($node)
 }
 
-function pdns(passive_dns) {
+function addPDNS(passive_dns) {
     for $entry in $passive_dns {
         if ($entry.address = "NXDOMAIN") {continue}
-        yield $addPassiveDNS($entry)
+        yield $addDNS($entry)
     }
 }
 
-function addPulses(pulses) {
+function addPulses(pulses, n=$lib.null) {
     for $pulse in $pulses {
-        yield $addPulse($pulse)
+        yield $addPulse($pulse, $n)
     }
+}
+
+function addUrl(url) {
+    [inet:url=$url]
+    return($node)
+    return($lib.null)
 }
 
 // Create media:news from OTX Pulses.
-function addPulse(pulse) {
+function addPulse(pulse, n=$lib.null) {
 
-    $lib.print('addPulse')
+    if $lib.debug {$lib.print($pulse)}
+
     $guid = $lib.guid(($pulse.id,))
+    if $lib.debug {$lib.print($guid)}
 
     $url = $lib.str.format(
         'https://otx.alienvault.com/pulse/{id}',
@@ -186,30 +194,129 @@ function addPulse(pulse) {
 
     [
         media:news=$guid
-            :url=$url
-            :title=$pulse.name
-            :summary=$pulse.description
-            :author=$pulse.author.username
-            :published=$pulse.created
+            :url?=$url
+            :title?=$pulse.name
+            :summary?=$pulse.description
+            :author?=$pulse.author.username
+            :published?=$pulse.created
     ]
 
-    // references[]
+    $addPulseIndicators($pulse.id, $node)
+
+    // Edge our media news back to the original inbound node.
+    if $n {
+        [ +(refs)> { yield $n } ]
+    }
+
+    $references = $pulse.references
+    if $references {
+        for $ref in $references {
+            ($ok, $url) = $lib.trycast(inet:url, $ref)
+            if (not $ok) {
+                $lib.warn("Unhandled reference ({ref})", ref=$url)
+                continue
+            }
+            $url = $addUrl($ref)
+            if $url {
+                [ +(refs)> { yield $url } ]
+            }
+        }
+    }
 
     [ <(seen)+ { yield $srcnode } ]
 
     return($node)
+}
 
+function addPulseIndicator(pulse_ioc, xref=$lib.null) {
+
+    switch $pulse_ioc.type {
+
+        "FileHash-MD5" : {
+            [hash:md5=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "FileHash-SHA1" : {
+            [hash:sha1=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "FileHash-SHA256" : {
+            [hash:sha256=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "FileHash-SHA512" : {
+            [hash:sha512=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "IPv4" : {
+            [inet:ipv4=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "domain" : {
+            [inet:fqdn=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "hostname" : {
+            [inet:fqdn=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "URL" : {
+            [inet:url=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        *: {
+            $lib.warn(
+                'Unsupported OTX IOC type: {ioc_type}',
+                ioc_type=$pulse_ioc.type
+            )
+        }
+    }
+
+    if $xref {
+        [ <(refs)+ {yield $xref} ]
+    }
+
+    fini{return($lib.null)}
+}
+
+function addPulseIndicators(pulseid, news) {
+
+    $page=1
+    $next_page = $lib.true
+
+    while ($next_page != $lib.null) {
+        $http_resp = $privsep.getPulseIndicators($pulseid, $page)
+        $results = $http_resp.results
+
+        for $res in $results {
+            $addPulseIndicator($res, $news)
+        }
+
+        $page = ($page + 1)
+        $next_page = $http_resp.next
+        $lib.print($next_page)
+    }
+
+    fini{return($lib.null)}
 }
 
 function enrich(n) {
     switch $n.form() {
         "inet:fqdn": {
             $http_resp = $privsep.getIndicatorsDomain($n, 'passive_dns')
-            $passive_dns = $http_resp."passive_dns"
+            $passive_dns = $http_resp.passive_dns
 
             $http_resp = $privsep.getIndicatorsDomain($n, 'general')
             $pulses = $http_resp.pulse_info.pulses
-            yield ($pdns($passive_dns), $addPulses($pulses))
+            yield ($addPDNS($passive_dns), $addPulses($pulses, $n))
+        }
+        "inet:ipv4": {
+            $http_resp = $privsep.getIndicatorsIPv4($n, 'passive_dns')
+            $passive_dns = $http_resp.passive_dns
+
+            $http_resp = $privsep.getIndicatorsIPv4($n, 'general')
+            $pulses = $http_resp.pulse_info.pulses
+            yield ($addPDNS($passive_dns), $addPulses($pulses, $n))
+        }
+        "inet:ipv6": {
+            $http_resp = $privsep.getIndicatorsIPv6($n, 'passive_dns')
+            $passive_dns = $http_resp.passive_dns
+
+            $http_resp = $privsep.getIndicatorsIPv6($n, 'general')
+            $pulses = $http_resp.pulse_info.pulses
+            yield ($addPDNS($passive_dns), $addPulses($pulses, $n))
         }
         *: {
             $lib.warn("Unsupported form: {form}", form=$n.form())

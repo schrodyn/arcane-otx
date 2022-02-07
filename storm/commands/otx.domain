@@ -1,7 +1,7 @@
 /*
 * Arcane Observatory - Alienvault OTX Domain Command.
 * Enrich an FQDN from the Alienvault domain API endpoint.
-* Kitchen Sink command.
+* Kitchen Sink command to do pdns, whois, related pulses, etc...
 */
 
 // First things first. Always import our dependancies.
@@ -20,20 +20,5 @@ if $node {
     if $lib.debug { $lib.print("OTX Domain command.") }
     $ingest.initMetaSource()
 
-    switch $node.form() {
-        "inet:fqdn": {
-            $http_resp = $privsep.getIndicatorsDomain($node, 'passive_dns')
-            $passive_dns = $http_resp.passive_dns
-            $gendns = $ingest.pdns($passive_dns)
-
-            $http_resp = $privsep.getIndicatorsDomain($node, 'general')
-            $pulses = $http_resp.pulse_info.pulses
-            $genpulses = $ingest.addPulses($pulses)
-        }
-    }
-
-    $lib.print("before loop")
-    for $g in ($gendns, $genpulses) {
-        divert $cmdopts.yield $g
-    }
+    divert $cmdopts.yield $ingest.enrich($node)
 }

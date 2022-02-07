@@ -202,24 +202,17 @@ function addPulse(pulse) {
 }
 
 function enrich(n) {
-
     switch $n.form() {
         "inet:fqdn": {
             $http_resp = $privsep.getIndicatorsDomain($n, 'passive_dns')
             $passive_dns = $http_resp."passive_dns"
+
             for $entry in $passive_dns {
                 $lib.print('loop')
                 if ($entry.address = "NXDOMAIN") {continue}
                 yield $addPassiveDNS($entry)
             }
-        }
-        *: {
-            $lib.warn("Unsupported form: {form}", form=$n.form())
-        }
-    }
 
-    switch $n.form() {
-        "inet:fqdn": {
             $http_resp = $privsep.getIndicatorsDomain($n, 'general')
             $pulses = $http_resp.pulse_info.pulses
             yield $addPulses($pulses)

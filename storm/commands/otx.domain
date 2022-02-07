@@ -11,7 +11,6 @@ init {
         $lib.debug = $lib.true
     }
     $ingest = $lib.import(arcane.otx.ingest)
-    $privsep = $lib.import(arcane.otx.privsep)
 }
 
 // If there is an inbound node
@@ -19,6 +18,5 @@ if $node {
 
     if $lib.debug { $lib.print("OTX Domain command.") }
     $ingest.initMetaSource()
-
     divert $cmdopts.yield $ingest.enrich($node)
 }

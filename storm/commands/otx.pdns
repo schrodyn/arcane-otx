@@ -25,45 +25,30 @@ if $node {
             if $lib.debug { $lib.print("OTX pDNS for fqdn") }
 
             $http_resp = $privsep.getIndicatorsDomain($node, 'passive_dns')
-
             if $lib.debug { $lib.print($http_resp) }
 
-            $passive_dns = $http_resp."passive_dns"
-
-            for $entry in $passive_dns {
-                if ($entry.address = "NXDOMAIN") {continue}
-                divert $cmdopts.yield $ingest.addPassiveDNS($entry)
-            }
+            $passive_dns = $http_resp.passive_dns
+            divert $cmdopts.yield $ingest.addPDNS($passive_dns)
         }
 
         "inet:ipv4": {
             if $lib.debug { $lib.print("OTX pDNS for ipv4") }
 
             $http_resp = $privsep.getIndicatorsIPv4($node, 'passive_dns')
-
             if $lib.debug { $lib.print($http_resp) }
 
-            $passive_dns = $http_resp."passive_dns"
-
-            for $entry in $passive_dns {
-                if ($entry.address = "NXDOMAIN") {continue}
-                divert $cmdopts.yield $ingest.addPassiveDNS($entry)
-            }
+            $passive_dns = $http_resp.passive_dns
+            divert $cmdopts.yield $ingest.addPDNS($passive_dns)
         }
 
         "inet:ipv6": {
             if $lib.debug { $lib.print("OTX pDNS for ipv6") }
 
             $http_resp = $privsep.getIndicatorsIPv6($node, 'passive_dns')
-
             if $lib.debug { $lib.print($http_resp) }
 
-            $passive_dns = $http_resp."passive_dns"
-
-            for $entry in $passive_dns {
-                if ($entry.address = "NXDOMAIN") {continue}
-                divert $cmdopts.yield $ingest.addPassiveDNS($entry)
-            }
+            $passive_dns = $http_resp.passive_dns
+            divert $cmdopts.yield $ingest.addPDNS($passive_dns)
         }
 
         // Default

@@ -1,0 +1,18 @@
+/*
+* Arcane Observatory - Alienvault OTX Passive DNS Command.
+*/
+
+// First things first. Always import our dependancies.
+// Enable debugging if requested.
+init {
+    if $cmdopts.debug {
+        $lib.debug = $lib.true
+    }
+    $ingest = $lib.import(arcane.otx.ingest)
+}
+
+// If there is an inbound node
+if $node {
+    $ingest.initMetaSource()
+    divert $cmdopts.yield $ingest.enrich($node)
+}

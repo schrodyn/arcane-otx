@@ -106,7 +106,7 @@ function getPulseIndicators(pulseid, page) {
 
     if $lib.debug {
         $lib.print(
-            'Retrieving pulses for {pulseid}',
+            'Retrieving indicators for {pulseid}',
             pulseid=$pulseid
         )
     }
@@ -124,6 +124,51 @@ function getPulseIndicators(pulseid, page) {
     return($http_get($api_url, $params))
 }
 
+function getUrls(n, page) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving urls for {ioc}',
+            ioc=$n.repr()
+        )
+    }
+
+    switch $n.form() {
+        "inet:fqdn" : {
+            $api_url = $lib.str.format(
+                "{api_base_url}/indicators/domain/{ioc}/url_list",
+                api_base_url=$api_base_url,
+                ioc=$n.repr()
+            )
+        }
+        "inet:ipv4" : {
+            $api_url = $lib.str.format(
+                "{api_base_url}/indicators/IPv4/{ioc}/url_list",
+                api_base_url=$api_base_url,
+                ioc=$n.repr()
+            )
+        }
+        "inet:ipv6" : {
+            $api_url = $lib.str.format(
+                "{api_base_url}/indicators/IPv6/{ioc}/url_list",
+                api_base_url=$api_base_url,
+                ioc=$n.repr()
+            )
+        }
+        *: {
+            $lib.warn("Unsupported ioc type ({ioc_type})", ioc_type=$n.form())
+            return($lib.null)
+        }
+    }
+
+    if $lib.debug { $lib.print($api_url) }
+
+    $params = $lib.dict(page=$page)
+
+    return($http_get($api_url, $params))
+}
 function http_get(api_url, params=$lib.null) {
 
     $apikey = $setup.getApiKey()

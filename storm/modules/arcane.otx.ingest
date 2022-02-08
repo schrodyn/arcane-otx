@@ -97,7 +97,6 @@ function addDNS(entry) {
         }
 
         'AAAA': {
-            if $lib.debug { $lib.print('{rtype} type', rtype=$rtype) }
             [ inet:dns:aaaa?=($entry.hostname, $entry.address) ]
         }
 
@@ -123,12 +122,10 @@ function addDNS(entry) {
         * WHAT COULD POSSIBLY GO WRONG IF.... we swap around the tuple values?
         */
         'A': {
-            if $lib.debug { $lib.print('{rtype} type', rtype=$rtype) }
             [ inet:dns:a?=($entry.hostname, $entry.address) ]
         }
 
         'CNAME': {
-            if $lib.debug { $lib.print('{rtype} type', rtype=$rtype) }
             [ inet:dns:cname=($entry.hostname, $entry.address) ]
         }
 
@@ -174,9 +171,8 @@ function addPulses(pulses, n=$lib.null) {
 }
 
 function addUrl(url) {
-    [inet:url=$url]
+    [inet:url?=$url]
     return($node)
-    return($lib.null)
 }
 
 // Create media:news from OTX Pulses.
@@ -233,28 +229,31 @@ function addPulseIndicator(pulse_ioc, xref=$lib.null) {
     switch $pulse_ioc.type {
 
         "FileHash-MD5" : {
-            [hash:md5=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [hash:md5?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "FileHash-SHA1" : {
-            [hash:sha1=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [hash:sha1?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "FileHash-SHA256" : {
-            [hash:sha256=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [hash:sha256?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "FileHash-SHA512" : {
-            [hash:sha512=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [hash:sha512?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "IPv4" : {
-            [inet:ipv4=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [inet:ipv4?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "domain" : {
-            [inet:fqdn=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [inet:fqdn?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "hostname" : {
-            [inet:fqdn=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [inet:fqdn?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         "URL" : {
-            [inet:url=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+            [inet:url?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "email" : {
+            [inet:email?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
         *: {
             $lib.warn(
@@ -286,10 +285,33 @@ function addPulseIndicators(pulseid, news) {
 
         $page = ($page + 1)
         $next_page = $http_resp.next
-        $lib.print($next_page)
     }
 
     fini{return($lib.null)}
+}
+
+/*
+* This can get painful for IPv4 as the URL back from OTX is an FQDN.
+* TODO: Something.
+*/
+function addUrls(n) {
+
+    $page=1
+    $has_next = $lib.true
+
+    while $has_next {
+
+        $http_resp = $privsep.getUrls($n, $page)
+        $url_list = $http_resp.url_list
+
+        for $url in $url_list {
+            $url = $addUrl($url.url)
+            yield $url
+        }
+
+        $page = ($page + 1)
+        $has_next = $http_resp.has_next
+    }
 }
 
 function enrich(n) {
@@ -300,7 +322,8 @@ function enrich(n) {
 
             $http_resp = $privsep.getIndicatorsDomain($n, 'general')
             $pulses = $http_resp.pulse_info.pulses
-            yield ($addPDNS($passive_dns), $addPulses($pulses, $n))
+
+            yield ($addPDNS($passive_dns), $addPulses($pulses, $n), $addUrls($n))
         }
         "inet:ipv4": {
             $http_resp = $privsep.getIndicatorsIPv4($n, 'passive_dns')
@@ -308,7 +331,9 @@ function enrich(n) {
 
             $http_resp = $privsep.getIndicatorsIPv4($n, 'general')
             $pulses = $http_resp.pulse_info.pulses
-            yield ($addPDNS($passive_dns), $addPulses($pulses, $n))
+
+            //yield ($addPDNS($passive_dns), $addPulses($pulses, $n), $addUrls($n))
+            yield ($addPulses($pulses, $n), $addUrls($n))
         }
         "inet:ipv6": {
             $http_resp = $privsep.getIndicatorsIPv6($n, 'passive_dns')

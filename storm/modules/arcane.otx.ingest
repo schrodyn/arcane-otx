@@ -58,7 +58,7 @@ function addDNS(entry) {
                     $entry.first,
                     $entry.last,
                 )
-                [ inet:dns:soa=$guid :fqdn=$entry.hostname :ns=$entry.address]
+                [ inet:dns:soa=$guid :fqdn=$entry.hostname :ns?=$entry.address]
             }
             else {
                 if $lib.debug {

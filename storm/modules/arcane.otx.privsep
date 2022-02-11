@@ -100,6 +100,28 @@ function getIndicatorsIPv6(arg_node, section) {
     return($http_get($api_url))
 }
 
+function getPulse(pulseid) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving pulse {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/{pulseid}",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    if $lib.debug { $lib.print($api_url) }
+
+    return($http_get($api_url))
+}
+
 function getPulseIndicators(pulseid, page) {
 
     $api_base_url = $modconf.api_url

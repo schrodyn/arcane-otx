@@ -175,6 +175,15 @@ function addUrl(url) {
     return($node)
 }
 
+function addPulseById(pulseid) {
+
+    if $lib.debug {$lib.print("addPulseById()")}
+
+    $pulse = $privsep.getPulse($pulseid)
+
+    yield $addPulse($pulse)
+}
+
 // Create media:news from OTX Pulses.
 function addPulse(pulse, n=$lib.null) {
 

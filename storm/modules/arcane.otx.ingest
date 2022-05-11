@@ -170,7 +170,7 @@ function addPulses(pulses, n=$lib.null) {
     }
 }
 
-function addUrl(url) {
+function addUrl(url, reference=$lib.false) {
     [inet:url?=$url]
     return($node)
 }
@@ -182,6 +182,20 @@ function addPulseById(pulseid) {
     $pulse = $privsep.getPulse($pulseid)
 
     yield $addPulse($pulse)
+}
+
+function addAuthor(username) {
+
+    $author_url = $lib.str.format(
+        'https://otx.alienvault.com/user/{username}/pulses',
+        username=$username
+    )
+
+    $author_guid = $lib.guid($username, $author_url)
+
+    [ps:contact=$author_guid :url=$author_url]
+
+    return($node)
 }
 
 // Create media:news from OTX Pulses.
@@ -197,12 +211,17 @@ function addPulse(pulse, n=$lib.null) {
         id=$pulse.id
     )
 
+    $author = $addAuthor($pulse.author.username)
+
+    $authors = $lib.list()
+    $authors.append($author)
+
     [
         media:news=$guid
             :url?=$url
             :title?=$pulse.name
             :summary?=$pulse.description
-            :author?=$pulse.author.username
+            :authors=$authors
             :published?=$pulse.created
     ]
 
@@ -210,20 +229,52 @@ function addPulse(pulse, n=$lib.null) {
 
     // Edge our media news back to the original inbound node.
     if $n {
-        [ +(refs)> { yield $n } ]
+        [ +(pubioc)> { yield $n } ]
     }
 
     $references = $pulse.references
     if $references {
-        for $ref in $references {
-            ($ok, $url) = $lib.trycast(inet:url, $ref)
-            if (not $ok) {
-                $lib.warn("Unhandled reference ({ref})", ref=$url)
-                continue
+        {
+            for $ref in $references {
+                ($ok, $url) = $lib.trycast(inet:url, $ref)
+                if (not $ok) {
+                    $lib.warn("Unhandled reference ({ref})", ref=$url)
+                    continue
+                }
+                $url = $addUrl($ref)
+                if $url {
+                    //[ +(refs)> { yield $url } ]
+                    if ($lib.debug) {
+                        $lib.print("Adding ref to {ref}", ref=$url.value())
+                    }
+                    [ +(refs)> {yield $url} ]
+                }
             }
-            $url = $addUrl($ref)
-            if $url {
-                [ +(refs)> { yield $url } ]
+        }
+    }
+
+    $pulse_tags = $pulse.tags
+
+    if $pulse_tags {
+        {
+            for $pulse_tag in $pulse_tags {
+                ($ok, $t) = $lib.trycast(syn:tag:part, $pulse_tag)
+
+                if (not $ok) {
+                    $lib.warn("Unhandled pulse tag ({tag})", tag=$pulse_tag)
+                    continue
+                }
+
+                $full_tag = $lib.str.format(
+                    'rep.alienvault.{leaf}',
+                    leaf=$t
+                )
+
+                if $lib.debug {
+                    $lib.print($full_tag)
+                }
+
+                [+#$full_tag]
             }
         }
     }
@@ -233,7 +284,7 @@ function addPulse(pulse, n=$lib.null) {
     return($node)
 }
 
-function addPulseIndicator(pulse_ioc, xref=$lib.null) {
+function addPulseIndicator(pulse_ioc, news=$lib.null) {
 
     switch $pulse_ioc.type {
 
@@ -264,6 +315,19 @@ function addPulseIndicator(pulse_ioc, xref=$lib.null) {
         "email" : {
             [inet:email?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
         }
+        "CIDR" : {
+            [inet:cidr4?=$pulse_ioc.indicator]
+        }
+        "YARA" : {
+            [
+                it:app:yara:rule=($pulse_ioc.title, $pulse_ioc.content)
+                :name?=$pulse_ioc.title
+                :text?=$pulse_ioc.content
+            ]
+        }
+        "CVE" : {
+            [it:sec:cve?=$pulse_ioc.indicator]
+        }
         *: {
             $lib.warn(
                 'Unsupported OTX IOC type: {ioc_type}',
@@ -273,7 +337,7 @@ function addPulseIndicator(pulse_ioc, xref=$lib.null) {
     }
 
     if $xref {
-        [ <(refs)+ {yield $xref} ]
+        [ <(pubioc)+ {yield $news} ]
     }
 
     fini{return($lib.null)}
@@ -341,6 +405,14 @@ function enrich(n) {
             $http_resp = $privsep.getIndicatorsIPv4($n, 'general')
             $pulses = $http_resp.pulse_info.pulses
 
+            if $http_resp.asn {
+                $m = $lib.regex.search("^AS([0-9]{1,10})\s", $http_resp.asn)
+                if $m {
+                    $lib.print("ASN Number: {asn}", asn=$m.index(0))
+                    {[inet:ipv4?=$http_resp.indicator :asn?=$m.index(0)]}
+                }
+            }
+
             yield ($addPDNS($passive_dns), $addPulses($pulses, $n), $addUrls($n))
         }
         "inet:ipv6": {
@@ -357,3 +429,23 @@ function enrich(n) {
     }
 }
 
+function addPulsesActivity(since=$lib.null) {
+
+    $page=1
+    $next_page = $lib.true
+
+    while ($next_page != $lib.null) {
+        $http_resp = $privsep.getPulsesActivity($page, $since)
+        $results = $http_resp.results
+
+        for $pulse in $results {
+            yield $addPulse($pulse)
+            //$addPulse($res)
+        }
+
+        $page = ($page + 1)
+        $next_page = $http_resp.next
+    }
+
+    //fini{return($lib.null)}
+}

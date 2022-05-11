@@ -215,3 +215,32 @@ function http_get(api_url, params=$lib.null) {
 
     return($resp.json())
 }
+
+function getPulsesActivity(page, since=$lib.null) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving pulses activity since {since}',
+            since=$since
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/activity",
+        api_base_url=$api_base_url
+    )
+
+    if $lib.debug { $lib.print($api_url) }
+
+    $params = $lib.dict(
+        page=$page
+    )
+
+    if $since {
+        $params.modified_since=$since
+    }
+
+    return($http_get($api_url, $params))
+}

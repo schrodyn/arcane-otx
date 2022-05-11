@@ -14,7 +14,8 @@ init {
     $ingest = $lib.import(arcane.otx.ingest)
 }
 
-// If there is an inbound node
+// storm $lib.print($lib.cast(time, '-2days'))
+
 if $lib.debug { $lib.print("OTX pulse command.") }
 $ingest.initMetaSource()
 yield $ingest.addPulseById($cmdopts.pulseid)

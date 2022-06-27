@@ -18,4 +18,6 @@ init {
 
 if $lib.debug { $lib.print("OTX pulse command.") }
 $ingest.initMetaSource()
-yield $ingest.addPulseById($cmdopts.pulseid)
+yield $ingest.addPulseById(
+    $cmdopts.pulseid, $cmdopts.iocs, $cmdopts.ioc_limit
+)

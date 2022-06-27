@@ -8,7 +8,7 @@ $apiKeyVar = arcane:otx:apikey
 $baseUrlVar = arcane:otx:baseurl
 
 // Get OTX API Key.
-function getApiKey() {
+function get_api_key() {
 
     // Check for a user key first.
     $valu = $lib.user.vars.get($apiKeyVar)
@@ -27,7 +27,7 @@ function getApiKey() {
 }
 
 // Set user or global OTX API key.
-function setApiKey(valu, self) {
+function set_api_key(valu, self) {
     if $self {
         $lib.user.vars.set($apiKeyVar, $valu)
     }

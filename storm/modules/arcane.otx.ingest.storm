@@ -4,12 +4,12 @@
 */
 
 init {
-    $privsep = $lib.import(arcane.otx.privsep)
+    $api = $lib.import(arcane.otx.api)
     // Used to edge back to our meta:source
     $srcnode = $lib.null
 }
 
-function initMetaSource() {
+function init_meta_source() {
 
     /*
     * if $srcnode has not already been set then retrieve the meta:source
@@ -30,7 +30,270 @@ function initMetaSource() {
     fini { return($lib.null) }
 }
 
-function addDNS(entry) {
+function add_author(username) {
+
+    $author_url = $lib.str.format(
+        'https://otx.alienvault.com/user/{username}/pulses',
+        username=$username
+    )
+
+    $author_guid = $lib.guid($username, $author_url)
+
+    [ps:contact=$author_guid :url=$author_url]
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+}
+
+function add_url(url, reference=$lib.false) {
+    [inet:url?=$url]
+    [ <(seen)+ { yield $srcnode } ]
+    return($node)
+}
+
+function add_pulses_activity(since=$lib.null) {
+
+    $page=(1)
+    $next_page = $lib.true
+
+    if $since {
+        ($ok, $modified_since) = $lib.trycast(time, $since)
+        if (not $ok) {
+            $lib.warn("Invalid time format ({since})", since=$since)
+            yield $lib.null
+        }
+    }
+
+    $modified_since = $lib.time.format(
+        $modified_since,
+        '%Y%m%dT%H:%M:%S+00:00'
+    )
+
+    while ($next_page != $lib.null) {
+        $http_resp = $api.get_pulses_activity($page, $modified_since)
+        $results = $http_resp.results
+        $page = ($page + 1)
+        $next_page = $http_resp.next
+
+        for $pulse in $results {
+            yield $add_pulse($pulse)
+        }
+    }
+}
+
+// Create media:news from OTX Pulses.
+function add_pulse(
+    pulse,
+    src_node=$lib.null,
+    add_iocs=$lib.false,
+    ioc_limit=$modconf.ioc_limit
+) {
+
+    // if $lib.debug {$lib.print($pulse)}
+
+    $guid = $lib.guid(($pulse.id,))
+
+    $url = $lib.str.format(
+        'https://otx.alienvault.com/pulse/{id}',
+        id=$pulse.id
+    )
+
+    $author = $add_author($pulse.author.username)
+
+    $authors = $lib.list()
+    $authors.append($author)
+
+    [
+        media:news=$guid
+            :url?=$url
+            :title?=$pulse.name
+            :summary?=$pulse.description
+            :authors?=$authors
+            :published?=$pulse.created
+    ]
+
+    if $add_iocs {
+        $add_pulse_indicators($pulse.id, $node, $ioc_limit)
+    }
+
+    // Edge our media news back to the original inbound node.
+    if $src_node {
+        [ +(pubioc)> { yield $src_node } ]
+    }
+
+    $references = $pulse.references
+    if $references {
+        { // subquery
+            for $ref in $references {
+                ($ok, $url) = $lib.trycast(inet:url, $ref)
+                if (not $ok) {
+                    $lib.warn("Unhandled reference URL ({ref})", ref=$url)
+                    continue
+                }
+
+                $url = $add_url($ref)
+                if $url {
+                    if ($lib.debug) {
+                        $lib.print("Adding ref to {ref}", ref=$url.value())
+                    }
+                    [ +(refs)> {yield $url} ]
+                }
+            }
+        }
+    }
+
+    $pulse_tags = $pulse.tags
+
+    if $pulse_tags {
+        { // subquery
+            for $pulse_tag in $pulse_tags {
+                ($ok, $t) = $lib.trycast(syn:tag:part, $pulse_tag)
+
+                if (not $ok) {
+                    $lib.warn("Unhandled pulse tag ({tag})", tag=$pulse_tag)
+                    continue
+                }
+
+                $full_tag = $lib.str.format(
+                    'rep.alienvault.{leaf}',
+                    leaf=$t
+                )
+
+                if $lib.debug {
+                    $lib.print($full_tag)
+                }
+
+                [+#$full_tag]
+            }
+        }
+    }
+
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+}
+
+function add_pulse_indicators(pulseid, news, ioc_limit) {
+
+    $http_resp = $api.get_pulse_indicators($pulseid)
+    $results = $http_resp.results
+
+    if ($results.length() <= $ioc_limit) {
+        for $res in $results {
+            $add_pulse_indicator($res, $news)
+        }
+    }
+    else {
+        $lib.warn(
+            "Ignoring pulse: {pulseid}. IOCs too large ({ioc_size})",
+            pulseid=$pulseid,
+            ioc_size=$results.length()
+        )
+    }
+
+    fini{return($lib.null)}
+}
+
+function add_pulse_indicator(pulse_ioc, xref=$lib.null) {
+
+    switch $pulse_ioc.type {
+
+        "FileHash-MD5" : {
+            [hash:md5?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "FileHash-SHA1" : {
+            [hash:sha1?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "FileHash-SHA256" : {
+            [hash:sha256?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "FileHash-SHA512" : {
+            [hash:sha512?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "IPv4" : {
+            [inet:ipv4?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "domain" : {
+            [inet:fqdn?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "hostname" : {
+            [inet:fqdn?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "URL" : {
+            [inet:url?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "email" : {
+            [inet:email?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
+        }
+        "CIDR" : {
+            [inet:cidr4?=$pulse_ioc.indicator]
+        }
+        "YARA" : {
+            [
+                it:app:yara:rule=($pulse_ioc.title, $pulse_ioc.content)
+                :name?=$pulse_ioc.title
+                :text?=$pulse_ioc.content
+            ]
+        }
+        "CVE" : {
+            [it:sec:cve?=$pulse_ioc.indicator]
+        }
+        *: {
+            $lib.warn(
+                'Unsupported OTX IOC type: {ioc_type}',
+                ioc_type=$pulse_ioc.type
+            )
+        }
+    }
+    [ <(seen)+ { yield $srcnode } ]
+
+    if $xref {
+        [ <(pubioc)+ {yield $xref} ]
+    }
+
+    fini{return($lib.null)}
+}
+
+function add_pulse_by_id(
+    pulseid,
+    add_iocs=$lib.false,
+    ioc_limit=$modconf.ioc_limit
+) {
+
+    if $lib.debug {$lib.print("addPulseById()")}
+
+    $pulse = $api.get_pulse($pulseid)
+
+    yield $add_pulse($pulse, add_iocs=$add_iocs, ioc_limit=$ioc_limit)
+}
+
+function add_pdns(n) {
+    switch $n.form() {
+        "inet:fqdn": {
+            $http_resp = $api.get_indicators_domain($n, 'passive_dns')
+            $passive_dns = $http_resp.passive_dns
+        }
+        "inet:ipv4": {
+            $http_resp = $api.get_indicators_ip($n, 'passive_dns')
+            $passive_dns = $http_resp.passive_dns
+        }
+        "inet:ipv6": {
+            $http_resp = $api.get_indicators_ip($n, 'passive_dns')
+            $passive_dns = $http_resp.passive_dns
+        }
+        *: {
+            $lib.warn("Unsupport node form for pdns ({form})", form=$n.form())
+            yield $lib.null
+        }
+    }
+
+    for $entry in $passive_dns {
+        if ($entry.address = "NXDOMAIN") {continue}
+        yield $add_dns($entry)
+    }
+}
+
+function add_dns(entry) {
 
     $rtype = $entry."record_type"
 
@@ -157,307 +420,244 @@ function addDNS(entry) {
     return($node)
 }
 
-function addPDNS(passive_dns) {
-    for $entry in $passive_dns {
-        if ($entry.address = "NXDOMAIN") {continue}
-        yield $addDNS($entry)
-    }
-}
-
-function addPulses(pulses, n=$lib.null) {
-    for $pulse in $pulses {
-        yield $addPulse($pulse, $n)
-    }
-}
-
-function addUrl(url, reference=$lib.false) {
-    [inet:url?=$url]
-    return($node)
-}
-
-function addPulseById(
-    pulseid,
-    add_iocs=$lib.false,
-    ioc_limit=$modconf.ioc_limit
-) {
-
-    if $lib.debug {$lib.print("addPulseById()")}
-
-    $pulse = $privsep.getPulse($pulseid)
-
-    yield $addPulse($pulse, add_iocs=$add_iocs, ioc_limit=$ioc_limit)
-}
-
-function addAuthor(username) {
-
-    $author_url = $lib.str.format(
-        'https://otx.alienvault.com/user/{username}/pulses',
-        username=$username
-    )
-
-    $author_guid = $lib.guid($username, $author_url)
-
-    [ps:contact=$author_guid :url=$author_url]
-
-    return($node)
-}
-
-// Create media:news from OTX Pulses.
-function addPulse(
-    pulse,
-    n=$lib.null,
-    add_iocs=$lib.null,
-    ioc_limit=$modconf.ioc_limit
-) {
-
-    if $lib.debug {$lib.print($pulse)}
-
-    $guid = $lib.guid(($pulse.id,))
-    if $lib.debug {$lib.print($guid)}
-
-    $url = $lib.str.format(
-        'https://otx.alienvault.com/pulse/{id}',
-        id=$pulse.id
-    )
-
-    $author = $addAuthor($pulse.author.username)
-
-    $authors = $lib.list()
-    $authors.append($author)
-
-    [
-        media:news=$guid
-            :url?=$url
-            :title?=$pulse.name
-            :summary?=$pulse.description
-            :authors=$authors
-            :published?=$pulse.created
-    ]
-
-    if $add_iocs {
-        $addPulseIndicators($pulse.id, $node, $ioc_limit)
-    }
-
-    // Edge our media news back to the original inbound node.
-    if $n {
-        [ +(pubioc)> { yield $n } ]
-    }
-
-    $references = $pulse.references
-    if $references {
-        {
-            for $ref in $references {
-                ($ok, $url) = $lib.trycast(inet:url, $ref)
-                if (not $ok) {
-                    $lib.warn("Unhandled reference ({ref})", ref=$url)
-                    continue
-                }
-                $url = $addUrl($ref)
-                if $url {
-                    //[ +(refs)> { yield $url } ]
-                    if ($lib.debug) {
-                        $lib.print("Adding ref to {ref}", ref=$url.value())
-                    }
-                    [ +(refs)> {yield $url} ]
-                }
-            }
-        }
-    }
-
-    $pulse_tags = $pulse.tags
-
-    if $pulse_tags {
-        {
-            for $pulse_tag in $pulse_tags {
-                ($ok, $t) = $lib.trycast(syn:tag:part, $pulse_tag)
-
-                if (not $ok) {
-                    $lib.warn("Unhandled pulse tag ({tag})", tag=$pulse_tag)
-                    continue
-                }
-
-                $full_tag = $lib.str.format(
-                    'rep.alienvault.{leaf}',
-                    leaf=$t
-                )
-
-                if $lib.debug {
-                    $lib.print($full_tag)
-                }
-
-                [+#$full_tag]
-            }
-        }
-    }
-
-    [ <(seen)+ { yield $srcnode } ]
-
-    return($node)
-}
-
-function addPulseIndicator(pulse_ioc, news=$lib.null) {
-
-    switch $pulse_ioc.type {
-
-        "FileHash-MD5" : {
-            [hash:md5?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "FileHash-SHA1" : {
-            [hash:sha1?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "FileHash-SHA256" : {
-            [hash:sha256?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "FileHash-SHA512" : {
-            [hash:sha512?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "IPv4" : {
-            [inet:ipv4?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "domain" : {
-            [inet:fqdn?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "hostname" : {
-            [inet:fqdn?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "URL" : {
-            [inet:url?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "email" : {
-            [inet:email?=$pulse_ioc.indicator .seen=($pulse_ioc.created)]
-        }
-        "CIDR" : {
-            [inet:cidr4?=$pulse_ioc.indicator]
-        }
-        "YARA" : {
-            [
-                it:app:yara:rule=($pulse_ioc.title, $pulse_ioc.content)
-                :name?=$pulse_ioc.title
-                :text?=$pulse_ioc.content
-            ]
-        }
-        "CVE" : {
-            [it:sec:cve?=$pulse_ioc.indicator]
-        }
-        *: {
-            $lib.warn(
-                'Unsupported OTX IOC type: {ioc_type}',
-                ioc_type=$pulse_ioc.type
-            )
-        }
-    }
-
-    if $xref {
-        [ <(pubioc)+ {yield $news} ]
-    }
-
-    fini{return($lib.null)}
-}
-
-function addPulseIndicators(pulseid, news, ioc_limit) {
-
-    $http_resp = $privsep.getPulseIndicators($pulseid)
-    $results = $http_resp.results
-
-    if ($results.length() <= $ioc_limit) {
-        for $res in $results {
-            $addPulseIndicator($res, $news)
-        }
-    }
-    else {
-        $lib.warn(
-            "Ignoring pulse: {pulseid}. IOCs too large ({ioc_size})",
-            pulseid=$pulseid,
-            ioc_size=$results.length()
-        )
-    }
-
-    fini{return($lib.null)}
-}
-
 /*
-* This can get painful for IPv4 as the URL back from OTX is an FQDN.
-* TODO: Something.
+Alienvault OTX whois records are fucking weird. There can be multiple
+dates with no context. E.g.: multiple creation dates, expiration dates.
+https://otx.alienvault.com/indicator/domain/bbc-news.org
+
+Using other vendor data going to take the earlier date in the whois
+results.
 */
-function addUrls(n) {
+function add_domain_whois(n, api_resp) {
 
-    $page=1
-    $has_next = $lib.true
+    $whois_data = $api_resp.data
+    $fqdn = $n.repr()
+    $name_servers = $lib.list()
+    $record = $lib.dict()
 
-    while $has_next {
+    for $entry in $whois_data {
 
-        $http_resp = $privsep.getUrls($n, $page)
-        $url_list = $http_resp.url_list
-
-        for $url in $url_list {
-            $url = $addUrl($url.url)
-            yield $url
-        }
-
-        $page = ($page + 1)
-        $has_next = $http_resp.has_next
-    }
-}
-
-function enrich(n) {
-    switch $n.form() {
-        "inet:fqdn": {
-            $http_resp = $privsep.getIndicatorsDomain($n, 'passive_dns')
-            $passive_dns = $http_resp.passive_dns
-
-            $http_resp = $privsep.getIndicatorsDomain($n, 'general')
-            $pulses = $http_resp.pulse_info.pulses
-
-            yield ($addPDNS($passive_dns), $addPulses($pulses, $n), $addUrls($n))
-        }
-        "inet:ipv4": {
-            $http_resp = $privsep.getIndicatorsIPv4($n, 'passive_dns')
-            $passive_dns = $http_resp.passive_dns
-
-            $http_resp = $privsep.getIndicatorsIPv4($n, 'general')
-            $pulses = $http_resp.pulse_info.pulses
-
-            if $http_resp.asn {
-                $m = $lib.regex.search("^AS([0-9]{1,10})\s", $http_resp.asn)
-                if $m {
-                    $lib.print("ASN Number: {asn}", asn=$m.index(0))
-                    {[inet:ipv4?=$http_resp.indicator :asn?=$m.index(0)]}
+        switch $entry.key.strip() {
+            "emails": {
+                $add_domain_whois_email($fqdn, $entry.value)
+            }
+            "registrar": {
+                $record.registrar = $entry.value
+            }
+            "creation_date": {
+                if $record.created {
+                    ($ok, $created) = $lib.trycast(time, $entry.value)
+                    if (not $ok) {continue}
+                    if ($created < $record.created) {
+                        $record.created = $lib.time.format($created, '%Y%m%dT%H:%M:%SZ')
+                    }
+                }
+                else {
+                    $record.created = $entry.value
                 }
             }
-
-            yield ($addPDNS($passive_dns), $addPulses($pulses, $n), $addUrls($n))
+            "updated_date": {
+                if $record.updated {
+                    ($ok, $updated) = $lib.trycast(time, $entry.value)
+                    if (not $ok) {continue}
+                    if ($updated < $record.updated) {
+                        $record.updated = $lib.time.format($updated, '%Y%m%dT%H:%M:%SZ')
+                    }
+                }
+                else {
+                    $record.updated = $entry.value
+                }
+            }
+            "expiration_date": {
+                if $record.expires {
+                    ($ok, $expired) = $lib.trycast(time, $entry.value)
+                    if (not $ok) {continue}
+                    if ($expired < $record.expires) {
+                        $record.expires = $lib.time.format($expired, '%Y%m%dT%H:%M:%SZ')
+                    }
+                }
+                else {
+                    $record.expires = $entry.value
+                }
+            }
+            "name_servers": {
+                $name_servers.append(($entry.value))
+            }
         }
-        "inet:ipv6": {
-            $http_resp = $privsep.getIndicatorsIPv6($n, 'passive_dns')
-            $passive_dns = $http_resp.passive_dns
+    }
 
-            $http_resp = $privsep.getIndicatorsIPv6($n, 'general')
-            $pulses = $http_resp.pulse_info.pulses
-            yield ($addPDNS($passive_dns), $addPulses($pulses, $n))
+    // Insert <I don't know what I'm doing meme>
+    // I couldn't decide? make? this work in a subquery so fini did the
+    // trick.
+    fini {
+        if (not $record.updated) {
+            $lib.warn("No updated date found in whois records!")
+            yield $lib.null
         }
-        *: {
-            $lib.warn("Unsupported form: {form}", form=$n.form())
+        $rec = $add_whois_rec($fqdn, $record)
+        for $ns in $name_servers {
+            $add_whois_recns($ns, $rec)
+        }
+        yield $rec
+    }
+}
+
+function add_whois_rec(fqdn, record) {
+    [inet:whois:rec=($fqdn, $record.updated)]
+    for ($k, $v) in $record {
+        [:$k=$v]
+    }
+    [ <(seen)+ { yield $srcnode } ]
+    return($node)
+}
+
+function add_whois_recns(ns, rec) {
+    [inet:whois:recns=($ns, $rec.repr())]
+    [ <(seen)+ { yield $srcnode } ]
+}
+
+function enrich_domain(n) {
+    $funcs = $lib.dict(
+        // section_name = section_process_function
+        "general"       = $add_domain_general,
+        //"malware"       = $add_domain_malware,
+        //"http_scans"    = $add_domain_http_scans,
+        "url_list"      = $add_url_list,
+        "whois"         = $add_domain_whois
+    )
+
+    for ($section, $func) in $funcs {
+        $page = (1)
+        $has_next = $lib.true
+
+        while $has_next {
+            $http_resp = $api.get_indicators_domain($n, $section, $page)
+
+            if $lib.debug {
+                $lib.print(
+                    "enrich_d() http_resp: {http_resp}",
+                    http_resp=$http_resp
+                )
+            }
+
+            // TODO: Error handling
+            if (not $http_resp) {yield $lib.null}
+
+            $has_next = $http_resp.next
+            $page = ($page + 1)
+
+            yield $func($n, $http_resp)
         }
     }
 }
 
-function addPulsesActivity(since=$lib.null) {
-
-    $page=1
-    $next_page = $lib.true
-
-    while ($next_page != $lib.null) {
-        $http_resp = $privsep.getPulsesActivity($page, $since)
-        $results = $http_resp.results
-
-        for $pulse in $results {
-            yield $addPulse($pulse)
-            //$addPulse($res)
-        }
-
-        $page = ($page + 1)
-        $next_page = $http_resp.next
+function add_domain_general(n, api_resp) {
+    $pulses = $api_resp.pulse_info.pulses
+    // if $lib.debug {
+    //     $lib.print(
+    //         "add_domain_general() pulses: {pulses}",
+    //         pulses=$pulses
+    //     )
+    // }
+    for $pulse in $pulses {
+        yield $add_pulse($pulse, $n)
     }
-
-    //fini{return($lib.null)}
 }
+
+function add_domain_malware(n, api_resp) {
+    yield $lib.null
+}
+
+function add_domain_http_scans(n, api_resp) {
+    yield $lib.null
+}
+
+function add_url_list(n, api_resp) {
+    for $entry in $api_resp.url_list {
+        [inet:url?=$entry.url]
+        [ <(seen)+ { yield $srcnode } ]
+        yield $node
+    }
+}
+
+function add_domain_whois_email(fqdn, email) {
+    [inet:whois:email=($fqdn, $email)]
+    [ <(seen)+ { yield $srcnode } ]
+    fini{return($lib.null)}
+}
+
+function enrich_ip(n) {
+    $funcs = $lib.dict(
+        // section_name = section_process_function
+        "general"       = $add_ip_general,
+        "geo"           = $add_ip_geo,
+        //"malware"       = $add_ip_malware,
+        //"http_scans"    = $add_ip_http_scans,
+        "url_list"      = $add_url_list,
+        //"whois"         = $add_ip_whois
+    )
+
+    for ($section, $func) in $funcs {
+        $page = (1)
+        $has_next = $lib.true
+
+        while $has_next {
+            $http_resp = $api.get_indicators_ip($n, $section, $page)
+
+            if $lib.debug {
+                $lib.print(
+                    "enrich_ip() http_resp: {http_resp}",
+                    http_resp=$http_resp
+                )
+            }
+
+            // TODO: Error handling
+            if (not $http_resp) {yield $lib.null}
+
+            $has_next = $http_resp.next
+            $page = ($page + 1)
+
+            yield $func($n, $http_resp)
+        }
+    }
+}
+
+function add_ip_general(n, api_resp) {
+    if $api_resp.validation {
+        for $entry in $api_resp.validation {
+            ($ok, $t) = $lib.trycast(syn:tag:part, $entry.source)
+            $tag = $lib.str.format(
+                'rep.alienvault.{leaf}',
+                leaf=$t
+            )
+            $form = $n.form()
+            $val = $n.repr()
+            [*$form=$val +#$tag]
+        }
+    }
+    $pulses = $api_resp.pulse_info.pulses
+    // if $lib.debug {
+    //     $lib.print(
+    //         "add_domain_general() pulses: {pulses}",
+    //         pulses=$pulses
+    //     )
+    // }
+    for $pulse in $pulses {
+        yield $add_pulse($pulse, $n)
+    }
+}
+
+function add_ip_geo(n, api_resp) {
+    $form = $n.form()
+    $val = $n.repr()
+    [*$form=$val :loc=$api_resp.country_code2]
+
+    if $api_resp.asn {
+        $m = $lib.regex.search("^AS([0-9]{1,10})\s", $api_resp.asn)
+        if $m {
+            [:asn=$m.index(0)]
+        }
+    }
+    fini{return($lib.null)}
+}
+// EOF

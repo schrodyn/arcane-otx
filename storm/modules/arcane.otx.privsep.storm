@@ -141,9 +141,7 @@ function getPulseIndicators(pulseid) {
 
     if $lib.debug { $lib.print($api_url) }
 
-    $params = $lib.dict(page=$page)
-
-    return($http_get($api_url, $params))
+    return($http_get($api_url))
 }
 
 function getUrls(n, page) {

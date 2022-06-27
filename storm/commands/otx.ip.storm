@@ -1,5 +1,7 @@
 /*
-* Arcane Observatory - Alienvault OTX Passive DNS Command.
+* Arcane Observatory - Alienvault OTX IP Command.
+* Enrich an IP from the Alienvault domain API endpoint.
+* Kitchen Sink command to do pdns, whois, related pulses, etc..
 */
 
 // First things first. Always import our dependancies.
@@ -13,6 +15,6 @@ init {
 
 // If there is an inbound node
 if $node {
-    $ingest.initMetaSource()
-    divert $cmdopts.yield $ingest.enrich($node)
+    $ingest.init_meta_source()
+    divert $cmdopts.yield $ingest.enrich_ip($node)
 }

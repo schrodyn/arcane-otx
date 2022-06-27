@@ -16,5 +16,5 @@ init {
 
 // If there is an inbound node
 if $lib.debug { $lib.print("OTX sync command.") }
-$ingest.initMetaSource()
-yield $ingest.addPulsesActivity($cmdopts.since)
+$ingest.init_meta_source()
+yield $ingest.add_pulses_activity($cmdopts.since)

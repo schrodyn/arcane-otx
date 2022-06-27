@@ -76,7 +76,10 @@ function add_pulses_activity(since=$lib.null) {
         $next_page = $http_resp.next
 
         for $pulse in $results {
-            yield $add_pulse($pulse)
+            // For some reason some data is missing from pulses from the
+            // activity feed so we retrieve the full pulse here.
+            $p = $api.get_pulse($pulse.id)
+            yield $add_pulse($p)
         }
     }
 }

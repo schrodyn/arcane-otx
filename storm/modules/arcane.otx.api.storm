@@ -1,0 +1,298 @@
+/*
+* Arcane OTX - API Methods
+* Privilege separation.
+* Privileged code goes here
+*/
+
+init {
+    if $lib.debug { $lib.print("Arcane OTX API Module") }
+    /*
+    * Import Arcane OTX setup module:
+    *  - get API Key functions
+    */
+    $setup = $lib.import(arcane.otx.setup)
+}
+
+function test() {
+    $lib.print("Arcane OTX Privsep test()")
+    $apiKey = $setup.ge_tapi_key()
+    $lib.print("Arcane OTX API Key: {apiKey}", apiKey=$apiKey)
+    return($lib.null)
+}
+
+function http_get(api_url, params=$lib.null) {
+
+    $apikey = $setup.get_api_key()
+
+    if $lib.debug { $lib.print('API URL {url}', url=$api_url) }
+
+    $headers = $lib.dict(
+        "Accept" = "application/json",
+        "X-OTX-API-KEY" = $apikey
+    )
+
+    if $lib.debug { $lib.print("GET params {params}", params=$params) }
+
+    $resp = $lib.inet.http.get($api_url, headers=$headers, params=$params)
+
+    if ($resp.code != 200) {
+        $lib.warn(
+            "OTX API ({api_url}) returned HTTP code: {code}",
+            api_url=$api_url,
+            code=$resp.code
+        )
+        return($lib.null)
+    }
+
+    return($resp.json())
+}
+
+/*
+* INDICATORS
+*/
+
+// indicators/submit_file
+// indicators/submitted_files
+// indicators/update_submitted_files_tlp
+// indicators/submit_url
+// indicators/submit_urls
+// indicators/submitted_urls
+// indicators/update_submitted_urls_tlp
+
+/*
+Get IP indicators by section name.
+
+indicators/{ip_form}/{ip}/{section}
+
+IP Forms:
+ - IPv4
+ - IPv6
+
+Sections:
+ - general: General information about the IP, such as geo data, and a
+   list of the other sections currently available for this IP address.
+ - reputation: OTX data on malicious activity observed by AlienVault
+   Labs (IP Reputation).
+ - geo: A more verbose listing of geographic data (Country code,
+   coordinates, etc.)
+ - malware: Malware samples analyzed by AlienVault Labs which have been
+   observed connecting to this IP address.
+ - url_list: URLs analyzed by AlienVault Labs which point to or are
+   somehow associated with this IP address.
+ - passive_dns: passive dns information about hostnames/domains
+ - observed by AlienVault Labs pointing to this IP address.
+ - http_scans: Meta data for http(s) connections to the IP.
+*/
+function get_indicators_ip(arg_node, section, page=$lib.null) {
+
+    $ip_type = "IPv4"
+    $ip = $arg_node.repr()
+    $node_form = $arg_node.form()
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Looking up {section} for IP: {ip}',
+            ip=$ip,
+            section=$section
+        )
+    }
+
+    if ($node_form = "inet:ipv6") {
+        $ip_type = "IPv6"
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/indicators/{ip_type}/{ip}/{section}",
+        api_base_url=$api_base_url,
+        ip_type=$ip_type,
+        ip=$ip,
+        section=$section
+    )
+
+    $params = $lib.dict()
+    if $page {
+        $params.page=$page
+    }
+
+    return($http_get($api_url, $params))
+}
+
+/*
+Get domain indicators by section name.
+ - /api/v1/indicators/domain/:domain/:section
+
+Available sections:
+ - malware
+ - passive_dns
+ - whois
+*/
+function get_indicators_domain(arg_node, section, page=$lib.null) {
+
+    $api_base_url = $modconf.api_url
+
+    $domain = $arg_node.repr()
+
+    if $lib.debug {
+        $lib.print(
+            'Looking up {section} for domain: {domain}',
+            domain=$domain,
+            section=$section
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/indicators/domain/{domain}/{section}",
+        api_base_url=$api_base_url,
+        domain=$domain,
+        section=$section
+    )
+
+    $params = $lib.dict()
+    if $page {
+        $params.page=$page
+    }
+
+    return($http_get($api_url, $params))
+}
+
+// indicators/hostname/{hostname}/{section}
+// indicators/file/{file_hash}/{section}
+/*
+ _____ ___  ____   ___
+|_   _/ _ \|  _ \ / _ \
+  | || | | | | | | | | |
+  | || |_| | |_| | |_| |
+  |_| \___/|____/ \___/
+*/
+
+/*
+Indicator page api for URLs
+
+API Endpoint: indicators/url/{url}/{section}
+
+Sections:
+ - general: Historical geographic info, any pulses this indicator is on,
+   list of the other sections currently available for this URL.
+ - url_list: Full results (potentially multiple) from AlienVault Labs
+   url analysis.
+
+ _____ ___  ____   ___
+|_   _/ _ \|  _ \ / _ \
+  | || | | | | | | | | |
+  | || |_| | |_| | |_| |
+  |_| \___/|____/ \___/
+*/
+
+// indicators/cve/{cve}/{section}
+// indicators/nids/{nids}/{section}
+// indicators/correlation-rule/{correlationrule}/{section}
+
+/*
+* PULSES
+*/
+
+// pulses/{pulse_id}
+function get_pulse(pulseid) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving pulse {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/{pulseid}",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    if $lib.debug { $lib.print($api_url) }
+
+    return($http_get($api_url))
+}
+
+// pulses/{pulse_id}/indicators
+function get_pulse_indicators(pulseid) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving indicators for {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/{pulseid}/indicators",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    if $lib.debug { $lib.print($api_url) }
+
+    return($http_get($api_url))
+}
+
+// pulses/{pulse_id}/related
+// pulses/related
+// pulses/subscribed
+// pulses/subscribed_pulse_ids
+
+// pulses/activity
+function get_pulses_activity(page, since=$lib.null) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            'Retrieving pulses activity since {since}',
+            since=$since
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/activity",
+        api_base_url=$api_base_url
+    )
+
+    if $lib.debug { $lib.print($api_url) }
+
+    $params = $lib.dict(
+        page=$page
+    )
+
+    if $since {
+        $params.modified_since=$since
+    }
+
+    return($http_get($api_url, $params))
+}
+
+// pulses/create
+// pulses/{pulse_id}/delete
+// pulses/{pulse_id}/subscribe
+// pulses/{pulse_id}/unsubscribe
+// pulses/indicators/types
+// pulses/indicators/validate
+// pulses/events
+// pulses/user/{username}
+// pulses/my
+
+/*
+* SEARCH
+*/
+
+/*
+* USERS
+*/
+
+/*
+* USER
+*/
+
+// EOF

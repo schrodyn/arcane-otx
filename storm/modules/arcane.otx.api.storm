@@ -158,13 +158,30 @@ function get_indicators_domain(arg_node, section, page=$lib.null) {
 
 // indicators/hostname/{hostname}/{section}
 // indicators/file/{file_hash}/{section}
-/*
- _____ ___  ____   ___
-|_   _/ _ \|  _ \ / _ \
-  | || | | | | | | | | |
-  | || |_| | |_| | |_| |
-  |_| \___/|____/ \___/
-*/
+function get_indicators_file(hash, section) {
+
+    $api_base_url = $modconf.api_url
+
+    $hash = $hash.repr()
+
+    if $lib.debug {
+        $lib.print(
+            'Looking up {section} for file hash: {hash}',
+            hash=$hash,
+            section=$section
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/indicators/file/{hash}/{section}",
+        api_base_url=$api_base_url,
+        hash=$hash,
+        section=$section
+    )
+
+    return($http_get($api_url))
+}
+
 
 /*
 Indicator page api for URLs

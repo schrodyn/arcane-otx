@@ -665,6 +665,16 @@ function add_ip_geo(n, api_resp) {
 }
 
 function file_general(n) {
+
+    $api_resp = $api.get_indicators_file($n, "general")
+
+    if ($api_resp.pulse_info.count > 0) {
+        $pulses = $api_resp.pulse_info.pulses
+
+        for $pulse in $pulses {
+            yield $add_pulse($pulse, $n)
+        }
+    }
 }
 
 // EOF

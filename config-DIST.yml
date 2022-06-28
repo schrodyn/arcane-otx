@@ -21,7 +21,6 @@ docs:
     title: Arcane Observatory Synapse OTX Package.
 
 modules:
-  - name: arcane.otx
   - name: arcane.otx.setup
   - name: arcane.otx.ingest
     modconf:

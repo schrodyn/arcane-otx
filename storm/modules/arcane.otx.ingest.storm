@@ -763,13 +763,52 @@ function add_pe_info(n, api_resp) {
     }
 }
 
+function add_http_requests(filebytes, api_resp) {
+    $cuckoo_result = $api_resp.analysis.plugins.cuckoo.result
+    if (not $cuckoo_result.network.http) {return($lib.null)}
+    $http = $cuckoo_result.network.http
+
+    for $req in $http {
+        $guid = $lib.guid(
+            $req.host,
+            $req.method,
+            $req.uri,
+            $filebytes.props.get('sha256')
+        )
+        [
+            inet:http:request=$guid
+            :method=$req.method
+            :url=$req.uri
+            :sandbox:file=$filebytes.props.get('sha256')
+        ]
+        [ <(seen)+ { yield $srcnode } ]
+        yield $node
+    }
+}
+
+function add_cuckoo(n, api_resp) {
+    if (not $api_resp.analysis.plugins.cuckoo) {
+        return($lib.null)
+    }
+
+    $file_bytes = $add_file_bytes($n, $api_resp)
+    $funcs = $lib.list(
+        $add_http_requests
+    )
+
+    for $func in $funcs {
+        yield $func($file_bytes, $api_resp)
+    }
+}
+
 function add_file_analysis(n) {
 
     $api_resp = $api.get_indicators_file($n, "analysis")
 
     $funcs = $lib.list(
         $add_file_bytes,
-        $add_pe_info
+        $add_pe_info,
+        $add_cuckoo
         // pe32info (523b595ea176098c820beae487df2d1a1aee782758cd84f4c04d16a8b4889e0d)
         // ooxml (78c6c33ebb8d5311c85c58817a1cce7bd126aa9457155962e7d5d2ffcc74c805)
     )

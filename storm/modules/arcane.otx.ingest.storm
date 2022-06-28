@@ -707,7 +707,6 @@ function add_pe_section(filebytes, api_resp) {
 function add_pe_export(filebytes, api_resp) {
     for $export in $api_resp.analysis.plugins.pe32info.results.exports {
         if (not $export.name) {continue}
-        $lib.print($export)
         [
             file:mime:pe:export=(
                 $filebytes.repr(),

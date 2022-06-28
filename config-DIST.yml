@@ -1,5 +1,5 @@
 name: arcane-otx
-version: 1.1.0
+version: 1.0.0
 license: BSD-2-Clause
 author:
   name: Conor Quigley
@@ -182,6 +182,104 @@ commands:
       output:
         - inet:ipv4
         - inet:ipv6
+
+  - name: otx.pdns
+    descr: Passive DNS data from OTX. Supports inet:fqdn, inet:ipv4 and inet:ipv6
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+    perms:
+      - [otx, user]
+    forms:
+      input:
+        - inet:fqdn
+        - inet:ipv4
+        - inet:ipv6
+      output:
+        - inet:fqdn
+        - inet:ipv4
+        - inet:ipv6
+
+  - name: otx.file.pulses
+    descr: Retrieve any pulses that refernce the suplied hash.
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+    perms:
+      - [otx, user]
+    forms:
+      input:
+        - hash:md5
+        - hash:sha1
+        - hash:sha256
+        - file:bytes
+      output:
+        - hash:md5
+        - hash:sha1
+        - hash:sha256
+        - file:bytes
+        - media:news
+
+  - name: otx.file.analysis
+    descr: Retrieve OTX file analysis for supplied hash.
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+    perms:
+      - [otx, user]
+    forms:
+      input:
+        - hash:md5
+        - hash:sha1
+        - hash:sha256
+        - file:bytes
+      output:
+        - hash:md5
+        - hash:sha1
+        - hash:sha256
+        - file:bytes
 
   - name: otx.pdns
     descr: Passive DNS data from OTX. Supports inet:fqdn, inet:ipv4 and inet:ipv6

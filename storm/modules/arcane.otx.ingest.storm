@@ -677,4 +677,106 @@ function file_general(n) {
     }
 }
 
+function add_file_bytes(n, api_resp) {
+
+    [
+        file:bytes=$api_resp.analysis.info.results.sha256
+        :md5=$api_resp.analysis.info.results.md5
+        :sha1=$api_resp.analysis.info.results.sha1
+        :size=$api_resp.analysis.info.results.filesize
+    ]
+
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+}
+
+function add_pe_section(filebytes, api_resp) {
+    for $section in $api_resp.analysis.plugins.pe32info.results.sections {
+        [
+            file:mime:pe:section=(
+                $filebytes.repr(),
+                $section.Name.rstrip('\x00'),
+                $filebytes.props.get('sha256')
+            )
+        ]
+        yield $node
+    }
+}
+
+function add_pe_export(filebytes, api_resp) {
+    for $export in $api_resp.analysis.plugins.pe32info.results.exports {
+        if (not $export.name) {continue}
+        $lib.print($export)
+        [
+            file:mime:pe:export=(
+                $filebytes.repr(),
+                $export.name
+            )
+        ]
+        [ <(seen)+ { yield $srcnode } ]
+        yield $node
+    }
+}
+
+function add_pe_vs_info(filebytes, api_resp) {
+
+    $vsinfo = $api_resp.analysis.plugins.pe32info.results.version_information
+
+    for $keyval in $vsinfo {
+        [
+            file:mime:pe:vsvers:info=(
+                $filebytes,
+                (
+                    $keyval.name,
+                    $keyval.value
+                )
+            )
+        ]
+        [ <(seen)+ { yield $srcnode } ]
+        yield $node
+    }
+}
+
+function add_pe_info(n, api_resp) {
+
+    if (not $api_resp.analysis.plugins.pe32info) {
+        return($lib.null)
+    }
+
+    $file_bytes = $add_file_bytes($n, $api_resp)
+
+    if $api_resp.analysis.plugins.pe32info.results.imphash {
+        $file_bytes.props.set(
+            'mime:pe:imphash',
+            $api_resp.analysis.plugins.pe32info.results.imphash
+        )
+    }
+
+    $funcs = $lib.list(
+        // $add_pe_section (Disabled: we don't have section hashes)
+        $add_pe_export,
+        $add_pe_vs_info
+    )
+
+    for $func in $funcs {
+        yield $func($file_bytes, $api_resp)
+    }
+}
+
+function add_file_analysis(n) {
+
+    $api_resp = $api.get_indicators_file($n, "analysis")
+
+    $funcs = $lib.list(
+        $add_file_bytes,
+        $add_pe_info
+        // pe32info (523b595ea176098c820beae487df2d1a1aee782758cd84f4c04d16a8b4889e0d)
+        // ooxml (78c6c33ebb8d5311c85c58817a1cce7bd126aa9457155962e7d5d2ffcc74c805)
+    )
+
+    for $func in $funcs {
+        yield $func($n, $api_resp)
+    }
+}
 // EOF

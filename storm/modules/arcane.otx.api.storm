@@ -158,11 +158,26 @@ function get_indicators_domain(arg_node, section, page=$lib.null) {
 
 // indicators/hostname/{hostname}/{section}
 // indicators/file/{file_hash}/{section}
-function get_indicators_file(hash, section) {
+function get_indicators_file(n, section) {
 
     $api_base_url = $modconf.api_url
 
-    $hash = $hash.repr()
+    $hash = $lib.null
+
+    switch $n.form() {
+        "file:bytes": {
+            $hash = $n.props.get('sha256')
+        }
+        "hash:sha256": {
+            $hash = $n.repr()
+        }
+        "hash:sha1": {
+            $hash = $n.repr()
+        }
+        "hash:md5": {
+            $hash = $n.repr()
+        }
+    }
 
     if $lib.debug {
         $lib.print(

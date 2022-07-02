@@ -433,6 +433,7 @@ results.
 */
 function add_domain_whois(n, api_resp) {
 
+    if ($api_resp.count = 0) {return($lib.null)}
     $whois_data = $api_resp.data
     $fqdn = $n.repr()
     $name_servers = $lib.list()
@@ -494,14 +495,20 @@ function add_domain_whois(n, api_resp) {
     // trick.
     fini {
         if (not $record.updated) {
-            $lib.warn("No updated date found in whois records!")
-            yield $lib.null
+            $lib.warn(
+                "({fqdn}) No updated date found in whois records!",
+                fqdn=$fqdn
+            )
+            if $lib.debug {
+                $lib.print($api_resp)
+            }
+            return($lib.null)
         }
         $rec = $add_whois_rec($fqdn, $record)
         for $ns in $name_servers {
             $add_whois_recns($ns, $rec)
         }
-        yield $rec
+        return($rec)
     }
 }
 

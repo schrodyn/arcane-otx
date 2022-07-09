@@ -435,9 +435,23 @@ function add_domain_whois(n, api_resp) {
 
     if ($api_resp.count = 0) {return($lib.null)}
     $whois_data = $api_resp.data
-    $fqdn = $n.repr()
+    //$fqdn = $n.repr()
     $name_servers = $lib.list()
     $record = $lib.dict()
+
+    // Oh Alienvault. Alienvault. Alienvault. Alienvault
+    // If I ask for omzg.example.com whois data you give me the whois
+    // data for example.com Convenient I guess but I'd rather you told
+    // me to go suck lemons.
+    // Gotta find the parent domain
+
+    for $entry in $whois_data {
+        if ($entry.key.strip() = 'domain_name') {
+            $fqdn = $entry.value.lower()
+        }
+    }
+
+    if (not $fqdn) {return($lib.null)}
 
     for $entry in $whois_data {
 
@@ -518,7 +532,6 @@ function add_domain_whois(n, api_resp) {
 function add_whois_rec(fqdn, record) {
     [inet:whois:rec=($fqdn, $record.updated)]
     {for ($k, $v) in $record {
-        $lib.print("{k}: {v}", k=$k, v=$v)
         [:$k=$v]
     }}
     [ <(seen)+ { yield $srcnode } ]

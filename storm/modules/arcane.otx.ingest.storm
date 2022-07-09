@@ -568,7 +568,7 @@ function enrich_domain(n) {
             }
 
             // TODO: Error handling
-            if (not $http_resp) {yield $lib.null}
+            if (not $http_resp) {break}
 
             $has_next = $http_resp.next
             $page = ($page + 1)

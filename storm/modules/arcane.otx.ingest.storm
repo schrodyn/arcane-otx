@@ -449,39 +449,42 @@ function add_domain_whois(n, api_resp) {
                 $record.registrar = $entry.value
             }
             "creation_date": {
+                ($ok, $created) = $lib.trycast(time, $entry.value)
+                if (not $ok) {continue}
+
                 if $record.created {
-                    ($ok, $created) = $lib.trycast(time, $entry.value)
-                    if (not $ok) {continue}
                     if ($created < $record.created) {
-                        $record.created = $lib.time.format($created, '%Y%m%dT%H:%M:%SZ')
+                        $record.created = $created
                     }
                 }
                 else {
-                    $record.created = $entry.value
+                    $record.created = $created
                 }
             }
             "updated_date": {
+                ($ok, $updated) = $lib.trycast(time, $entry.value)
+                if (not $ok) {continue}
+
                 if $record.updated {
-                    ($ok, $updated) = $lib.trycast(time, $entry.value)
-                    if (not $ok) {continue}
                     if ($updated < $record.updated) {
-                        $record.updated = $lib.time.format($updated, '%Y%m%dT%H:%M:%SZ')
+                        $record.updated = $updated
                     }
                 }
                 else {
-                    $record.updated = $entry.value
+                    $record.updated = $updated
                 }
             }
             "expiration_date": {
+                ($ok, $expired) = $lib.trycast(time, $entry.value)
+                if (not $ok) {continue}
+
                 if $record.expires {
-                    ($ok, $expired) = $lib.trycast(time, $entry.value)
-                    if (not $ok) {continue}
                     if ($expired < $record.expires) {
-                        $record.expires = $lib.time.format($expired, '%Y%m%dT%H:%M:%SZ')
+                        $record.expires = $expired
                     }
                 }
                 else {
-                    $record.expires = $entry.value
+                    $record.expires = $expired
                 }
             }
             "name_servers": {
@@ -514,9 +517,10 @@ function add_domain_whois(n, api_resp) {
 
 function add_whois_rec(fqdn, record) {
     [inet:whois:rec=($fqdn, $record.updated)]
-    for ($k, $v) in $record {
+    {for ($k, $v) in $record {
+        $lib.print("{k}: {v}", k=$k, v=$v)
         [:$k=$v]
-    }
+    }}
     [ <(seen)+ { yield $srcnode } ]
     return($node)
 }

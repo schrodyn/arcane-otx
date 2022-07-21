@@ -539,7 +539,6 @@ function add_domain_whois(n, api_resp) {
             return($lib.null)
         }
         $rec = $add_whois_rec($fqdn, $record)
-        $lib.pprint($name_servers)
         for $ns in $name_servers {
             $add_whois_recns($ns, $rec)
         }

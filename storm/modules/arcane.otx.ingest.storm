@@ -476,6 +476,23 @@ function add_domain_whois(n, api_resp) {
                 }
             }
             "updated_date": {
+                // JFC OTX
+                /*
+                    {
+                        "key": "updated_date",
+                        "name": "Updated Date",
+                        "value": "2022-02-14T18:12:47"
+                    },
+                    {
+                        "key": "updated_date ",
+                        "name": "Updated Date",
+                        "value": "0001-01-01T00:00:00"
+                    },
+                */
+                if ($entry.value.strip().startswith('000')) {
+                    continue
+                }
+
                 ($ok, $updated) = $lib.trycast(time, $entry.value)
                 if (not $ok) {continue}
 
@@ -522,6 +539,7 @@ function add_domain_whois(n, api_resp) {
             return($lib.null)
         }
         $rec = $add_whois_rec($fqdn, $record)
+        $lib.pprint($name_servers)
         for $ns in $name_servers {
             $add_whois_recns($ns, $rec)
         }
@@ -539,6 +557,10 @@ function add_whois_rec(fqdn, record) {
 }
 
 function add_whois_recns(ns, rec) {
+    if $lib.debug {
+        $lib.print($ns)
+        $lib.print($rec)
+    }
     [inet:whois:recns=($ns, $rec.repr())]
     [ <(seen)+ { yield $srcnode } ]
 }

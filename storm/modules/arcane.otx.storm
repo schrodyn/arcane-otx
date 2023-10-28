@@ -1,0 +1,415 @@
+/*
+
+Top level Alienvault OTX module.
+
+*/
+
+$ingest = $lib.import("arcane.otx.ingest")
+$api = $lib.import("arcane.otx.api")
+
+function pdns(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::pdns]')
+    }
+
+    switch $n.form() {
+        "inet:fqdn": {
+            yield $get_add_pdns($n, $asof)
+        }
+        "inet:ipv4": {
+            yield $get_add_pdns($n, $asof)
+        }
+        "inet:ipv6": {
+            yield $get_add_pdns($n, $asof)
+        }
+        *: {
+            $lib.warn("[arcane::otx::pdns] Unsupported node: {n}", n=$n.ndef())
+        }
+    }
+}
+
+function get_add_pdns(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::get_add_pdns]')
+    }
+
+    switch $n.form() {
+        "inet:ipv4": {
+            $api_resp = $api.get_indicators_ip($n, 'passive_dns', asof=$asof)
+        }
+        "inet:ipv6": {
+            $api_resp = $api.get_indicators_ip($n, 'passive_dns', asof=$asof)
+        }
+        "inet:fqdn": {
+            $api_resp = $api.get_indicators_domain($n, 'passive_dns', asof=$asof)
+        }
+    }
+
+    yield $add_pdns($n, $api_resp)
+}
+
+function add_pdns(n, api_resp) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::add_pdns]')
+    }
+
+    $passive_dns = $api_resp.passive_dns
+    for $entry in $passive_dns {
+        if ($entry.address = "NXDOMAIN") {continue}
+        yield $ingest.add_dns($entry, $n)
+    }
+}
+
+function pulses(
+    pulseids,
+    asof,
+    add_iocs,
+    ioc_limit
+) {
+
+    if $lib.debug {
+        $lib.print('[arcane::otx::pulses]')
+    }
+
+    for $pulseid in $pulseids {
+        $pulse = $api.get_pulse($pulseid, $asof)
+
+        $media_node = $ingest.add_pulse($pulse)
+
+        if $add_iocs {
+            if $lib.debug {
+                $lib.print('[arcane::otx::pulses] Adding IOCs')
+            }
+            $next_page = $lib.true
+            $page = 1
+
+            while ($next_page != $lib.null) {
+                $http_resp = $api.get_pulse_indicators(
+                    $pulseid,
+                    $page,
+                    $ioc_limit, // TODO: Count be smaller than count
+                    $asof
+                )
+
+                $iocs = $http_resp.results
+                $next_page = $http_resp.next
+                $page = ($page + 1)
+
+                $ingest.add_pulse_iocs(
+                    $iocs, $pulse.tags, $media_node
+                )
+            }
+        }
+        yield $media_node
+    }
+}
+
+function enrich_domain(n, asof) {
+
+    if $lib.debug {
+        $lib.print('[arcane::otx::enrich_domain]')
+    }
+
+    // section_name = section_process_function
+    $f_genr = $lib.dict(
+        "general"       = $add_domain_general,
+
+        // TODO: Just not sure there's value in this...
+        // Malware samples analyzed by AlienVault Labs which have been observed connecting to this domain.
+        //"malware"       = $add_domain_malware,
+
+        "http_scans"    = $ingest.add_domain_http_scans,
+        "url_list"      = $ingest.add_url_list,
+        "passive_dns"   = $add_pdns,
+        "whois"         = $ingest.add_domain_whois
+    )
+
+    for ($section, $func) in $f_genr {
+        $page = (1)
+        $has_next = $lib.true
+
+        while $has_next {
+            $http_resp = $api.get_indicators_domain(
+                            $n, $section, $page, $asof
+                         )
+
+            if (not $http_resp) {break}
+            $has_next = $http_resp.next
+            $page = ($page + 1)
+            yield $func($n, $http_resp)
+        }
+    }
+}
+
+// TEST
+function enrich_domain2(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::enrich_domain2]')
+    }
+
+    tee -p {
+        yield $add_domain_http_scans($n, $asof)
+    }
+    {
+        yield $_add_pdns($n, $asof)
+    }
+    {
+        yield $_add_domain_general($n, $asof)
+    }
+    {
+        yield $add_url_list($n, $asof)
+    }
+    {
+        yield $add_domain_whois($n, $asof)
+    }
+}
+
+function _add_pdns(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::_add_pdns]')
+    }
+
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_domain(
+                        $n, "passive_dns", $page, $asof
+                     )
+
+        $lib.print($http_resp)
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $add_pdns($n, $http_resp)
+    }
+}
+
+function _add_domain_general(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::_add_domain_general]')
+    }
+
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_domain(
+                        $n, "general", $page, $asof
+                     )
+
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $add_domain_general($n, $http_resp)
+    }
+}
+
+function add_domain_http_scans(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::add_domain_http_scans]')
+    }
+
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_domain(
+                        $n, "http_scans", $page, $asof
+                     )
+
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $ingest.add_domain_http_scans($n, $http_resp)
+    }
+}
+
+function add_url_list(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::add_url_list]')
+    }
+
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_domain(
+                        $n, "url_list", $page, $asof
+                     )
+
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $ingest.add_url_list($n, $http_resp)
+    }
+}
+
+function add_domain_whois(n, asof) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::add_domain_whois]')
+    }
+
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_domain(
+                        $n, "whois", $page, $asof
+                     )
+
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $ingest.add_domain_whois($n, $http_resp)
+    }
+}
+
+// TODO Add xref
+function add_domain_general(n, api_resp) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::add_domain_general]')
+    }
+    $pulse_ids = $lib.list()
+    for $pulse in $api_resp.pulse_info.pulses {
+        $pulse_ids.append($pulse.id)
+    }
+    // Just get the pulses. Don't retrieve the IOCs too.
+    yield $pulses($pulse_ids, "-30 days", $lib.false, 0)
+}
+
+function pulses_subscribed(
+    since,
+    asof,
+    add_iocs,
+    ioc_limit
+) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::pulses_subscribed]')
+    }
+
+    ($ok, $modified_since) = $lib.trycast(time, $since)
+    if (not $ok) {
+        $lib.warn("Invalid time format ({since})", since=$since)
+        yield $lib.null
+    }
+
+    $page=(1)
+    $next_page = $lib.true
+
+    $modified_since = $lib.time.format(
+        $modified_since,
+        '%Y-%m-%dT%H:%M:%S+00:00'
+    )
+
+    $pulse_ids = $lib.list()
+
+    while ($next_page != $lib.null) {
+        $http_resp = $api.get_pulses_subscribed(
+            $modified_since,
+            $page,
+            $asof
+        )
+
+        $results = $http_resp.results
+        $page = ($page + 1)
+        $next_page = $http_resp.next
+
+        for $pulse in $results {
+            $pulse_ids.append($pulse.id)
+        }
+    }
+
+    yield $pulses($pulse_ids, $asof, $add_iocs, $ioc_limit)
+}
+
+function pulses_byusername(
+    username,
+    since,
+    asof,
+    add_iocs,
+    ioc_limit
+) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::pulses_byusername]')
+    }
+
+    ($ok, $modified_since) = $lib.trycast(time, $since)
+    if (not $ok) {
+        $lib.warn("Invalid time format ({since})", since=$since)
+        yield $lib.null
+    }
+
+    $page=(1)
+    $next_page = $lib.true
+
+    $modified_since = $lib.time.format(
+        $modified_since,
+        '%Y-%m-%dT%H:%M:%S+00:00'
+    )
+
+    $pulse_ids = $lib.list()
+
+    while ($next_page != $lib.null) {
+        $http_resp = $api.get_pulses_username(
+            $username,
+            $modified_since,
+            $page,
+            $asof
+        )
+
+        $results = $http_resp.results
+        $page = ($page + 1)
+        $next_page = $http_resp.next
+
+        for $pulse in $results {
+            $pulse_ids.append($pulse.id)
+        }
+    }
+
+    yield $pulses($pulse_ids, $asof, $add_iocs, $ioc_limit)
+}
+function enrich_ip(n, asof) {
+
+    if $lib.debug {
+        $lib.print('[arcane::otx::enrich_ip]')
+    }
+
+    // section_name = section_process_function
+    $f_genr = $lib.dict(
+        "general"       = $add_ip_general,
+        "geo"           = $ingest.add_ip_geo,
+        "http_scans"    = $ingest.add_domain_http_scans,
+        "url_list"      = $ingest.add_url_list,
+        "passive_dns"   = $add_pdns,
+    )
+
+    for ($section, $func) in $f_genr {
+        $page = (1)
+        $has_next = $lib.true
+
+        while $has_next {
+            $http_resp = $api.get_indicators_ip(
+                            $n, $section, $page, $asof
+                         )
+
+            if (not $http_resp) {break}
+            $has_next = $http_resp.next
+            $page = ($page + 1)
+            yield $func($n, $http_resp)
+        }
+    }
+}
+
+function add_ip_general(n, api_resp) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::add_ip_general]')
+    }
+    $pulse_ids = $lib.list()
+    for $pulse in $api_resp.pulse_info.pulses {
+        $pulse_ids.append($pulse.id)
+    }
+    // Just get the pulses. Don't retrieve the IOCs too.
+    yield $pulses($pulse_ids, "-30 days", $lib.false, 0)
+}
+// EOF

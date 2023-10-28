@@ -1,0 +1,24 @@
+/*
+* otx.setup.tagprefix storm command
+*/
+
+init {
+    if $cmdopts.debug {$lib.debug = $lib.true}
+}
+
+($ok, $tagname) = $lib.trycast(syn:tag, $cmdopts.tagname)
+if (not $ok) {
+    // sudo insult
+    $lib.exit('[aob::otx::setup::tagprefix] Tag prefix invalid. Do you think like you type?')
+}
+
+$setup = $lib.import(arcane.otx.setup)
+
+if $cmdopts.self {
+    $lib.print("[aob::otx::setup::tagprefix] Setting Aracne OTX IOC tag for the current user.")
+}
+else {
+    $lib.print("[aob::otx::setup::tagprefix] Setting Arcane OTX IOC tag for all users.")
+}
+
+$setup.set_tag_prefix($cmdopts.tagprefix, self=$cmdopts.self)

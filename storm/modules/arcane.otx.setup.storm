@@ -1,0 +1,61 @@
+/* Set API key. */
+
+$apiKeyVar = aob:alienvault:apikey
+$tagPrefix = aob:alienvault:tagprefix
+
+function set_api_key(valu, self=$lib.false) {
+    if $self {
+        $lib.user.vars.set($apiKeyVar, $valu)
+    }
+    else {
+        $lib.globals.set($apiKeyVar, $valu)
+    }
+}
+
+function get_api_key() {
+
+    if $lib.debug { $lib.print('[arcane::otx::setup::get_api_key]') }
+
+    $valu = $lib.user.vars.get($apiKeyVar)
+    if $valu {
+        return($valu)
+    }
+
+    // Check for global defined API key.
+    $valu = $lib.globals.get($apiKeyVar)
+    if $valu {
+        return($valu)
+    }
+
+    $lib.warn('[arcane::otx::setup::get_api_key] No API key found!')
+
+    // No API key found. OMZG!
+    return($lib.null)
+}
+
+function set_tag_prefix() {
+    if $lib.debug { $lib.print('[arcane::otx::setup::set_tag_prefix]') }
+    if $self {
+        $lib.user.vars.set($tagPrefix, $valu)
+    }
+    else {
+        $lib.globals.set($tagPrefix, $valu)
+    }
+}
+
+function get_tag_prefix() {
+
+    if $lib.debug { $lib.print('[arcane::otx::setup::get_tag_prefix]') }
+
+    $valu = $lib.user.vars.get($tagPrefix)
+    if $valu {
+        return($valu)
+    }
+
+    $valu = $lib.globals.get($tagPrefix)
+    if $valu {
+        return($valu)
+    }
+
+    return($modconf.tagprefix)
+}

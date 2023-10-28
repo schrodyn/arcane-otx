@@ -1,0 +1,270 @@
+/*
+
+* Arcane OTX - API Methods
+* Privilege separation.
+* Privileged code goes here
+*/
+
+init {
+    if $lib.debug { $lib.print("[arcane::otx::api::init]") }
+    /*
+    * Import Arcane OTX setup module:
+    *  - get API Key functions
+    */
+    $setup = $lib.import(arcane.otx.setup)
+}
+
+function get_tag_prefix() {
+    return($setup.get_tag_prefix())
+}
+
+// HTTP Functions
+function http_get(api_url, params=$lib.null, asof=$modconf.asof) {
+
+    $apiKey = $setup.get_api_key()
+
+    if (not $apiKey) {
+        $lib.exit('[arcane::otx::api::http_get] No Alienvault API set!')
+    }
+
+    if $lib.debug {
+        $lib.print('[arcane::otx::api::http_get] API URL {url}', url=$api_url)
+    }
+
+    $headers = $lib.dict(
+        "Accept" = "application/json",
+        "X-OTX-API-KEY" = $apiKey
+    )
+
+    // lib.jsonstor.cacheget(path, key, asof=now, envl=$lib.false)
+    $cache_path = ("power-ups", "arcane-otx", "cache")
+    $cache_key = $lib.guid($api_url, $headers, $params)
+    $cache_hit = $lib.jsonstor.cacheget($cache_path, $cache_key, $asof)
+    if $cache_hit {
+        if $lib.debug {
+            $lib.print('Cache hit! {cache_path}:{cache_key}',
+                cache_path = $cache_path,
+                cache_key=$cache_key
+            )
+        }
+        return($cache_hit)
+    }
+
+    if $lib.debug {
+        $lib.print("[arcane::otx::api::http_get] GET params {params}", params=$params)
+    }
+
+    $resp = $lib.inet.http.get($api_url, headers=$headers, params=$params)
+
+    if ($resp.code != 200) {
+        $lib.warn(
+            "[arcane::otx::api::http_get] OTX API ({api_url}) returned HTTP code: {code}",
+            api_url=$api_url,
+            code=$resp.code
+        )
+        return($lib.null)
+    }
+
+    $lib.jsonstor.cacheset($cache_path, $cache_key, $resp.json())
+
+    return($resp.json())
+}
+
+/*
+Get domain indicators by section name.
+ - /api/v1/indicators/domain/:domain/:section
+
+Available sections:
+ - malware
+ - passive_dns
+ - whois
+*/
+function get_indicators_domain(
+    n, section, page=$lib.null, asof=$modconf.asof
+) {
+
+    $api_base_url = $modconf.api_url
+
+    $domain = $n.repr()
+
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::get_indicators_domain] Looking up {section} for domain: {domain}',
+            domain=$domain,
+            section=$section
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/indicators/domain/{domain}/{section}",
+        api_base_url=$api_base_url,
+        domain=$domain,
+        section=$section
+    )
+
+    $params = $lib.dict()
+    if $page {
+        $params.page=$page
+    }
+
+    return($http_get($api_url, $params, $asof))
+}
+
+// pulses/{pulse_id}
+function get_pulse(pulseid, asof=$modconf.asof) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::get_pulse] Retrieving pulse {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+         "{api_base_url}/pulses/{pulseid}",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    return($http_get($api_url, asof=$asof))
+}
+
+// pulses/{pulse_id}/indicators
+function get_pulse_indicators(
+    pulseid,
+    page=1,
+    ioc_limit=100,
+    asof=$modconf.asof
+) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::get_pulse_indicators] Retrieving indicators for {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/{pulseid}/indicators",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    $params = $lib.dict()
+    $params.page=$page
+    $params.limit=$ioc_limit
+
+    return($http_get($api_url, $params, $asof))
+}
+
+function get_pulses_subscribed(
+    modified_since,
+    page=1,
+    asof=$modconf.asof
+) {
+
+    $api_base_url = $modconf.api_url
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::get_pulses_subscribed] Retrieving subscribed pulses since {since}',
+            since=$modified_since
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/subscribed",
+        api_base_url=$api_base_url
+    )
+
+    $params = $lib.dict(
+        page=$page,
+        modified_since=$modified_since,
+        limit=10
+    )
+
+    return($http_get($api_url, $params, $asof))
+}
+function get_pulses_username(
+    username,
+    modified_since,
+    page=1,
+    asof=$modconf.asof
+) {
+
+    $api_base_url = $modconf.api_url
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::get_pulses_username] Retrieving pulses for user {username} since {since}',
+            username=$username,
+            since=$modified_since
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/user/{username}",
+        api_base_url=$api_base_url,
+        username=$username
+    )
+
+    $params = $lib.dict(
+        page=$page
+    )
+
+    if $modified_since {
+        $params.since=$modified_since
+    }
+
+    return($http_get($api_url, $params, $asof))
+}
+
+function get_indicators_ip(
+    n,
+    section,
+    page=1,
+    asof=$modconf.asof
+) {
+
+    $ip_type = $lib.null
+
+    switch $n.form() {
+        "inet:ipv4": {
+            $ip_type = "IPv4"
+        }
+        "inet:ipv6": {
+            $ip_type = "IPv6"
+        }
+        *: {
+            $lib.exit("[arcane::otx::api::get_indicators_ip] Crazy. Neither ipv4 or ipv6")
+        }
+    }
+
+    $ip = $n.repr()
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::get_indicators_ip] Looking up {section} for IP: {ip}',
+            ip=$ip,
+            section=$section
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/indicators/{ip_type}/{ip}/{section}",
+        api_base_url=$api_base_url,
+        ip_type=$ip_type,
+        ip=$ip,
+        section=$section
+    )
+
+    $params = $lib.dict()
+    $params.page=$page
+
+    return($http_get($api_url, $params, $asof))
+}
+
+// EOF

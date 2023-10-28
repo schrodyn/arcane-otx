@@ -1,0 +1,12 @@
+/*
+    Arcane Observatory Alientvault OTX Passive DNS Command.
+*/
+
+init {
+    if $cmdopts.debug { $lib.debug = $lib.true }
+    $otx = $lib.import("arcane.otx")
+}
+
+if $node {
+    divert --size $cmdopts.size $cmdopts.yield $otx.pdns($node, asof=$cmdopts.asof)
+}

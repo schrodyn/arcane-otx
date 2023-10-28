@@ -1,0 +1,15 @@
+/*
+    Arcane Observatory Alienvault OTX Pulse Command.
+*/
+
+init {
+    if $cmdopts.debug { $lib.debug = $lib.true }
+    $otx = $lib.import("arcane.otx")
+}
+
+divert --size $cmdopts.size $cmdopts.yield $otx.pulses(
+    $cmdopts.pulseids,
+    $cmdopts.asof,
+    $cmdopts.iocs,
+    $cmdopts.ioc_limit
+)

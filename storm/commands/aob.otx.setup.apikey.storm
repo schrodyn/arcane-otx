@@ -1,0 +1,18 @@
+/*
+    aob.otx.setup.apikey storm command
+*/
+
+init {
+    if $cmdopts.debug {$lib.debug = $lib.true}
+}
+
+$setup = $lib.import(arcane.otx.setup)
+
+if $cmdopts.self {
+    $lib.print("[aob::otx::setup::apikey] Setting Aracne OTX API key for the current user.")
+}
+else {
+    $lib.print("[aob::otx::setup::apikey] Setting Arcane OTX API key for all users.")
+}
+
+$setup.set_api_key($cmdopts.apikey, self=$cmdopts.self)

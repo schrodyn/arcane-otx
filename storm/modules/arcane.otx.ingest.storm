@@ -1,0 +1,664 @@
+/*
+    Alienvault OTX Data Ingest Module.
+    Implements functions to parse and create nodes within cortex.
+*/
+
+init {
+    // Used to edge back to our meta:source
+    $srcnode = $lib.null
+    $setup = $lib.import("arcane.otx.setup")
+    $api = $lib.import("arcane.otx.api")
+
+    //$tag_prefix = $setup.get_tag_prefix()
+    $tag_prefix = $api.get_tag_prefix()
+}
+
+function init_meta_source() {
+    /*
+    * if $srcnode has not already been set then retrieve the meta:source
+    * and define the global var $srcnode.
+    */
+    if ($srcnode = $lib.null) {
+        if ($lib.debug) {
+            $lib.print("[arcane::otx::ingest::init_meta_source] Setting meta:source={source}", source=$modconf.source)
+        }
+        [ meta:source=$modconf.source :name="arcane-otx" ]
+        $srcnode = $node
+    }
+
+    /*
+    * fini(): stuff here runs *once* after the last node yield (even if
+    * there are no nodes)
+    */
+    fini { return($lib.null) }
+}
+
+function add_dns(entry, n=$lib.null) {
+
+    $rtype = $entry."record_type"
+
+    switch $rtype {
+
+         /*
+          DNS pedantry.
+
+          SOA records from OTX are pretty bad. They don't provide
+          the full SOA text and will give you an SOA for a
+          "hostname" which is not a zone meaning you could
+          mistakenly define an SOA for say record.zone.tld. rather
+          than zone.tld. There is a difference, people!
+
+          We check for "asset_type": "domain"
+
+          Note: The "address" field of a DNS result is the defined
+          nameserver within the SOA record.
+
+          The email address is missing.
+        */
+        'SOA': {
+            if ($entry.asset_type = "domain") {
+                $guid = $lib.guid(
+                    $entry.hostname,
+                    $entry.address
+                )
+                [inet:dns:soa?=$guid :fqdn?=$entry.hostname :ns?=$entry.address]
+            }
+            else {
+                if $lib.debug {
+                    $lib.print(
+                        '[arcane::otx::ingest::add_dns] {record} ({rtype}) (asset type {asset_type}) record ignored.',
+                        record=$entry.hostname,
+                        asset_type=$entry.asset_type,
+                        rtype=$rtype
+                    )
+                }
+            }
+        }
+
+        /*
+          DNS pedantry.
+
+          NS records from OTX are pretty bad. They provide NS
+          records for record.zone.tld. which might not actually be
+          defined in the real DNS zone itself and seems to just be a
+          merge of the NS records for zone.tld. down into what OTX
+          defines as a "hostname" rather than a "domain" asset_type.
+
+          We check for "asset_type": "domain"
+        */
+        'NS': {
+            // Unreliable. Doesn't always reflect NS for an FQDN.
+            // Need to validate what OTX is showing me. hostname
+            // resolves to address? But I asked for the NS record for an
+            // IP.
+            /*
+            {
+                "passive_dns": [
+                    {
+                        "address": "95.213.145.101",
+                        "first": "2022-09-21T03:46:13",
+                        "last": "2022-09-21T03:46:13",
+                        "hostname": "bmw-tuning777.com",
+                        "record_type": "NS",
+                        "indicator_link": "/indicator/domain/bmw-tuning777.com",
+                        "flag_url": "assets/images/flags/ru.png",
+                        "flag_title": "Russia",
+                        "asset_type": "domain",
+                        "asn": "AS49505 ooo network of data-centers selectel"
+                    }
+                ],
+                "count": 1
+            }
+            */
+            if ($n.form() = "inet:fqdn") {
+                [ inet:dns:ns?=($entry.hostname, $entry.address) ]
+            }
+            else {
+                if $lib.debug {
+                    $lib.warn(
+                        '[arcane::otx::ingest::add_dns] {record} ({rtype}) record ignored.',
+                        record=$entry.hostname,
+                        rtype=$rtype
+                    )
+                }
+            }
+        }
+        'AAAA': {
+            [ inet:dns:aaaa?=($entry.hostname, $entry.address) ]
+        }
+
+        /*
+          TODO: Sometimes OTX DNS records are backwards
+          The hostname is the IP address and the address is the
+          hostname:
+          {
+            "address": "gmail.com",
+            "first": "2015-05-06T22:00:00",
+            "last": "2015-05-06T22:00:00",
+            "hostname": "74.125.28.18",
+            "record_type": "A",
+            "indicator_link": "/indicator/hostname/74.125.28.18",
+            "flag_url": "assets/images/flags/us.png",
+            "flag_title": "United States",
+            "asset_type": "hostname",
+            "asn": "AS15169 GOOGLE"
+          }
+          Up is down. Left is right! Won't someone please think of the
+          children!
+
+          WHAT COULD POSSIBLY GO WRONG IF.... we swap around the tuple values?
+        */
+        'A': {
+            [ inet:dns:a?=($entry.hostname, $entry.address) ]
+        }
+
+        'CNAME': {
+            [ inet:dns:cname=($entry.hostname, $entry.address) ]
+        }
+
+        'TXT': {
+            $lib.warn('[arcane::otx::ingest::add_dns] {rtype} type not yet implemented', rtype=$rtype)
+        }
+
+        // While not supported anymore SPF was the record type
+        // before TXT records were settled on for SPF data. For a
+        // time SPF records did exist but it was decided not to use
+        // them because many caching resolvers are too old and do
+        // not support this lookup. It's still useful to check for
+        // their existence in DNS data.
+        'SPF': {
+            $lib.warn('[arcane::otx::ingest::add_dns] {rtype} type not yet implemented', rtype=$rtype)
+        }
+
+        *: {
+            $lib.warn(
+                '[arcane::otx::ingest::add_dns] DNS record type ({rtype}) not supported!',
+                rtype=$rtype
+            )
+        }
+    }
+
+    // Maybe pivot out and add from node? -+>
+    [ .seen?=$entry.first .seen?=$entry.last ]
+    [ <(seen)+ { yield $srcnode } ]
+}
+
+function add_pulse(pulse) {
+
+    /*
+      Learning from Slack that meta source initialised when ingestion
+      methods are executed. Guess that makes sense. Just not sure why
+      not call it in init{} ?
+    */
+    $init_meta_source()
+
+    /*
+      Changing how I create the guid is going to cause so much grief for
+      me but the grief is really old me who didn't know better and only
+      thought of himself and never future me. What an arsehole.
+    */
+    $guid = $lib.guid("alienvault", "otx", $pulse.id)
+    $url = $lib.str.format(
+        'https://otx.alienvault.com/pulse/{id}',
+         id=$pulse.id
+    )
+
+    [
+        media:news=$guid
+        :url?=$url
+        :title?=$pulse.name
+        :summary?=$pulse.description
+        :published?=$pulse.created
+        :ext:id?=$pulse.id
+    ]
+
+    $ioc_tags = $lib.tags.prefix($pulse.tags, $tag_prefix)
+    // TODO: Scrub junk tags from OTX.
+    { for $tag in $ioc_tags { [ +#$tag ] } }
+
+    // authors
+    [ :authors+=$add_author($pulse.author) ]
+
+    {
+        for $country in $pulse.targeted_countries {
+             [
+                +(refs)> {
+                    [ geo:name?=$country <(seen)+ { yield $srcnode } ]
+                }
+            ]
+        }
+    }
+
+    {
+        for $industry in $pulse.industries {
+            [
+                +(refs)> {
+                    [ ou:industryname?=$industry <(seen)+ { yield $srcnode } ]
+                }
+            ]
+        }
+    }
+
+    {
+        for $attack_id in $pulse.attack_ids {
+            [
+                +(refs)> {
+                    [ it:mitre:attack:technique?=$attack_id <(seen)+ { yield $srcnode } ]
+                }
+            ]
+        }
+    }
+
+    if $pulse.adversary {
+        [
+            +(refs)> {[ ou:name?=$pulse.adversary <(seen)+ { yield $srcnode } ]}
+        ]
+    }
+
+    {
+        // Not always URLs. Do I care about filenames?
+        for $ref in $pulse.references {
+            [ +(refs)> {[ inet:url?=$ref <(seen)+ { yield $srcnode } ]} ]
+        }
+    }
+
+    {
+        for $malware in $pulse.malware_families {
+            [ +(refs)> {[ it:prod:softname?=$malware <(seen)+ { yield $srcnode } ]} ]
+        }
+    }
+
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+}
+
+function add_author(author) {
+
+    $author_url = $lib.str.format(
+        'https://otx.alienvault.com/user/{username}/pulses',
+        username=$author.username
+    )
+
+    $author_guid = $lib.guid($author.username, $author_url)
+
+    [
+     ps:contact=$author_guid
+     :url=$author_url
+     :users?+=$author.username
+    ]
+
+    [ <(seen)+ { yield $srcnode } ]
+
+    return($node)
+}
+
+function add_pulse_iocs(iocs, pulse_tags, media_node) {
+    for $ioc in $iocs {
+        $add_pulse_ioc($ioc, $pulse_tags, $media_node)
+    }
+    return($lib.null)
+}
+
+function add_pulse_ioc(pulse_ioc, pulse_tags, media_node) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_pulse_ioc]')
+    }
+
+    switch $pulse_ioc.type {
+        "FileHash-MD5" : {
+            [hash:md5?=$pulse_ioc.indicator]
+        }
+        "FileHash-SHA1" : {
+            [hash:sha1?=$pulse_ioc.indicator]
+        }
+        "FileHash-SHA256" : {
+            [hash:sha256?=$pulse_ioc.indicator]
+        }
+        "FileHash-SHA512" : {
+            [hash:sha512?=$pulse_ioc.indicator]
+        }
+        "IPv4" : {
+            [inet:ipv4?=$pulse_ioc.indicator]
+        }
+        "domain" : {
+            [inet:fqdn?=$pulse_ioc.indicator]
+        }
+        "hostname" : {
+            [inet:fqdn?=$pulse_ioc.indicator]
+        }
+        "URL" : {
+            [inet:url?=$pulse_ioc.indicator]
+        }
+        "email" : {
+            [inet:email?=$pulse_ioc.indicator]
+        }
+        "CIDR" : {
+            [inet:cidr4?=$pulse_ioc.indicator]
+        }
+        "YARA" : {
+            $guid = $lib.guid(
+                "alienvault",
+                "otx",
+                "yara",
+                $pulse_ioc.id,
+                $pulse_ioc.title
+            )
+            [
+                it:app:yara:rule=$guid
+                :name?=$pulse_ioc.title
+                :text?=$pulse_ioc.content
+            ]
+        }
+        "CVE" : {
+            [it:sec:cve?=$pulse_ioc.indicator]
+        }
+        "Mutex": {
+            [it:dev:mutex?=$pulse_ioc.indicator]
+        }
+        "BitcoinAddress":{
+            [crypto:currency:address?=(btc, $pulse_ioc.indicator)]
+        }
+        *: {
+            $lib.warn(`[arcane::otx::ingest::add_ioc] Unsupported IOC type {$pulse_ioc.type}`)
+        }
+    }
+
+    // Tagging IOCs is dumb because of the noise from pulses.
+    //$ioc_tags = $lib.tags.prefix($pulse_tags, $tag_prefix)
+    //{ for $tag in $ioc_tags { [ +#$tag ] } }
+
+    [ .seen=($pulse_ioc.created) ]
+    [ <(seen)+ { yield $srcnode } ]
+    [ <(pubioc)+ {yield $media_node} ]
+
+    fini{return($lib.null)}
+}
+
+function add_url_list(n, api_resp) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_url_list]')
+    }
+    for $entry in $api_resp.url_list {
+        if ($entry.httpcode != 0) {
+            $guid = $lib.guid(
+                "alienvault",
+                "otx",
+                "http-request",
+                $entry.url,
+                $entry.httpcode,
+                $entry.date
+            )
+
+            [
+                inet:http:request=$guid
+                :time=$entry.date
+                :url=$entry.url
+                :response:code=$entry.httpcode
+            ]
+        }
+        else {
+            [inet:url?=$entry.url]
+        }
+
+        [ <(seen)+ { yield $srcnode } ]
+        yield $node
+    }
+}
+
+/*
+
+    Alienvault OTX whois records are fucking weird. There can be multiple
+    dates with no context. E.g.: multiple creation dates, expiration dates.
+
+    https://otx.alienvault.com/indicator/domain/bbc-news.org
+
+    Using other vendor data going to take the earlier date in the whois
+    results
+*/
+function add_domain_whois(n, api_resp) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_domain_whois]')
+    }
+
+    if ($api_resp.count = 0) {yield $lib.null}
+    $whois_data = $api_resp.data
+    $name_servers = $lib.set()
+    $whois_rec = $lib.dict()
+    $fqdn = $lib.null
+
+    /*
+        Oh Alienvault. Alienvault. Alienvault. Alienvault
+        If I ask for omzg.example.com whois data you give me the whois
+        data for example.com Convenient I guess but I'd rather you told
+        me to go suck lemons.
+        Gotta find the parent domain
+    */
+
+    // Yes, I need this. Uh.
+    for $entry in $whois_data {
+        if ($entry.key.strip() = 'domain_name') {
+            $fqdn = $entry.value.lower()
+        }
+    }
+
+    if (not $fqdn) {yield $lib.null}
+
+    /*
+        Spent time looking at my own domains through OTX whois API and
+        *some* seems that fields with a " " at the end do have meaning.
+        Then other fields without the space have the same context as
+        those with a space. Yep.
+    */
+    for $entry in $whois_data {
+        switch $entry.key.strip() {
+            "emails": {
+                $add_domain_whois_email($fqdn, $entry.value)
+            }
+            "registrar": {$whois_rec.registrar = $entry.value}
+            "creation_date": {
+                ($ok, $created) = $lib.trycast(time, $entry.value)
+                if (not $ok) {continue}
+
+                if $whois_rec.created {
+                    if ($created < $whois_rec.created) {
+                        $whois_rec.created = $created
+                    }
+                }
+                else { $whois_rec.created = $created }
+            }
+            "updated_date": {
+                // JFC OTX
+                /*
+                    {
+                        "key": "updated_date",
+                        "name": "Updated Date",
+                        "value": "2022-02-14T18:12:47"
+                    },
+                    {
+                        "key": "updated_date ",
+                        "name": "Updated Date",
+                        "value": "0001-01-01T00:00:00"
+                    }
+                */
+                if ($entry.value.strip().startswith('000')) {
+                    continue
+                }
+
+                /*
+                    Some whois update dates cause issues.
+                    kyrgyzkomur.gov.kg
+                    " Wed Jan 10 11:18:40 2018"
+                    This will not cast.
+                */
+                ($ok, $updated) = $lib.trycast(time, $entry.value.strip())
+                if (not $ok) {continue}
+
+                if $whois_rec.updated {
+                    if ($updated < $whois_rec.updated) {
+                        $whois_rec.updated = $updated
+                    }
+                }
+                else { $whois_rec.updated = $updated }
+            }
+            "expiration_date": {
+                ($ok, $expired) = $lib.trycast(time, $entry.value)
+                if (not $ok) {continue}
+
+                if $whois_rec.expires {
+                    if ($expired < $whois_rec.expires) {
+                        $whois_rec.expires = $expired
+                    }
+                }
+                else { $whois_rec.expires = $expired }
+            }
+            "name_servers": {
+                $parts = $entry.value.split("\n")
+                for $part in $parts {
+                    //$name_servers.add($entry.value)
+                    $name_servers.add($part.strip())
+                }
+            }
+        }
+    }
+
+    $whois_asof = $lib.null
+    if $whois_rec.updated {
+        $whois_asof = $whois_rec.updated
+    }
+    elif $whois_rec.created {
+        $whois_asof = $whois_rec.created
+    }
+    else {
+        $whois_asof = $lib.time.now()
+    }
+
+    [ inet:whois:rec=($fqdn, $whois_asof) ]
+    {for ($k, $v) in $whois_rec {
+        [:$k=$v]
+    }}
+    [ <(seen)+ { yield $srcnode } ]
+
+    {for $ns in $name_servers {
+        $add_whois_recns($ns, $node)
+    }}
+}
+
+function add_domain_whois_email(fqdn, email) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_domain_whois_email]')
+    }
+    [inet:whois:email=($fqdn, $email)]
+    [ <(seen)+ { yield $srcnode } ]
+    fini{return($lib.null)}
+}
+
+function add_whois_recns(ns, rec) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_whois_recns]')
+        $lib.print(`{$ns} {$rec} {$rec.repr()}`)
+    }
+    [inet:whois:recns=($ns.lower(), $rec.repr())]
+    [ <(seen)+ { yield $srcnode } ]
+    fini{return($lib.null)}
+}
+
+// No! You're a convoluted mess and so's your face!
+// https://www.youtube.com/watch?v=0jjNrQ1tGjk&t=43s
+function add_domain_http_scans(n, api_resp) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_domain_http_scans]')
+    }
+
+    $f_genr = $lib.dict(
+        "http"      = $add_http_scan,
+        "https"     = $add_https_scan,
+    )
+
+    $sections = $lib.dict(
+        "http"  = $lib.dict(),
+        "https" = $lib.dict()
+    )
+
+    for $entry in $api_resp.data {
+        if $entry.key.startswith("80") {
+            $k = $entry.key
+            $sections."http".$k = $entry.value
+        }
+        elif $entry.key.startswith("443") {
+            $k = $entry.key
+            $sections."https".$k = $entry.value
+        }
+        else {
+            $lib.warn('[arcane::otx::ingest::add_domain_http_scans] Unhandled http_scans data')
+        }
+    }
+
+    for ($section, $func) in $f_genr {
+        yield $func($sections.$section)
+    }
+}
+
+// TODO: Scrape fields?
+function add_http_scan(data) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_http_scan]')
+        $lib.print($data)
+    }
+
+    for ($k, $v) in $data {
+        switch $k.strip() {
+            "80 a_domains": {[inet:fqdn=$v]}
+            "80 script_domains": {[inet:fqdn=$v]}
+            "80 script_urls": {[inet:url=$v]}
+            "80 body": {}
+            "80 header": {}
+            "80 title": {}
+            *: {
+                $lib.warn(`[arcane::otx::ingest::add_http_scan] Unhandled HTTP data {$k}:{$v}`)
+            }
+        }
+        [ <(seen)+ { yield $srcnode } ]
+    }
+}
+
+// NOT IMPLEMENTED
+function add_https_scan(data) {
+    if $lib.debug {
+        $lib.print('[arcane::otx::ingest::add_https_scan]')
+        $lib.print($data)
+    }
+    /*for $entry in $api_resp.data {
+        switch $entry.key.strip() {
+            "443 certificate subjectAltName": {
+                [inet:fqdn=$entry.value]
+            }
+        }
+        [ <(seen)+ { yield $srcnode } ]
+    }*/
+    yield $lib.null
+}
+
+function add_ip_geo(n, api_resp) {
+
+    $form = $n.form()
+    $val = $n.repr()
+
+    [
+        *$form=$val
+        :loc?=$api_resp.country_code2
+        :latlong?=($api_resp.latitude, $api_resp.longitude)
+    ]
+
+    if $api_resp.asn {
+        $asn = $api_resp.asn
+        $m = $lib.regex.search("^AS([0-9]{1,10})\s(.*)", $api_resp.asn)
+        if $m {
+            [:asn?=$m.index(0)]
+            $asn_name = $m.index(1).strip()
+            {:asn -> inet:asn [:name?=$asn_name]}
+        }
+    }
+
+    fini{return($lib.null)}
+}

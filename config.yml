@@ -1,0 +1,367 @@
+name: arcane-otx
+version: 2.0.0
+license: BSD-2-Clause
+author:
+  name: Conor Quigley
+  url: https://konundrum.org/
+
+genopts:
+  dotstorm: true
+
+# Defines required role permissions.
+perms:
+  - perm: [power-ups, aob, otx, user]
+    desc: Controls user access to Arcane OTX pkg.
+    gate: cortex
+
+docs:
+  - content: |
+      This package provides Alienvault OTX API support for Synapse.
+      This pkg is in development and is not stable.
+    title: Arcane Observatory Synapse Alienvault OTX Rapid Power-Up.
+
+modules:
+  - name: arcane.otx
+  - name: arcane.otx.setup
+    modconf:
+      tagprefix: rep.alienvault
+  - name: arcane.otx.ingest
+    modconf:
+      source: 273fc0ea486033c976375a1871b1a216
+      ioc_limit: &ioc_limit 300
+  - name: arcane.otx.api
+    asroot:perms:
+      - [power-ups, aob, otx, user]
+    modconf:
+      api_url: https://otx.alienvault.com/api/v1
+      asof: &asof "-30 days"
+
+commands:
+  - name: aob.otx.setup.apikey
+    descr: Set Alienvault OTX API Key
+    asroot: False
+    perms:
+      - [power-ups, aob, otx, user]
+    cmdargs:
+      - - apikey
+        - type: str
+          help: Alienvault OTX Key.
+
+      - - --self
+        - default: false
+          action: store_true
+          help: Set API for current user only.
+          type: bool
+
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+  # Stole idea from Vertex. Tnx folks!
+  - name: aob.otx.setup.tagprefix
+    descr: Set Alienvault OTX IOC tag.
+    asroot: False
+    perms:
+      - [power-ups, aob, otx, user]
+    cmdargs:
+      - - tagprefix
+        - type: str
+          help: Alienvault OTX Key.
+
+      - - --self
+        - default: false
+          action: store_true
+          help: Set tag prefix for current user only. If not set option is set globally.
+          type: bool
+
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+  - name: aob.otx.pdns
+    descr: Passive DNS data from OTX. Supports inet:fqdn, inet:ipv4 and inet:ipv6
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --size
+        - default: ~
+          type: int
+          help: Limit number of yielded results.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+      - - --asof
+        - default: *asof
+          help: Specify the maximum age for a cached result. To disable caching, use --asof now.
+          type: str
+    perms:
+      - [power-ups, aob, otx, user]
+    forms:
+      input:
+        - inet:fqdn
+        - inet:ipv4
+        - inet:ipv6
+      output:
+        - inet:fqdn
+        - inet:ipv4
+        - inet:ipv6
+
+  - name: aob.otx.pulses
+    descr: Retrieve pulses by pulse IDs.
+    # Do not allow to run as root.
+    asroot: False
+    # User perms required to acces this command?
+    perms:
+      - [power-ups, aob, otx, user]
+    cmdargs:
+      - - pulseids
+        - type: str
+          nargs: +
+          help: OTX Pulse IDs
+
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --size
+        - default: ~
+          type: int
+          help: Limit number of yielded results.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+      - - --asof
+        - default: *asof
+          help: Specify the maximum age for a cached result. To disable caching, use --asof now.
+          type: str
+
+      - - --iocs
+        - default: false
+          action: store_true
+          # https://otx.alienvault.com/pulse/62637949a39428085f129938
+          help: Retrieve indicators? Some pulses are huge and not worth pulling in 60,000 IPs.
+          type: bool
+
+      - - --ioc_limit
+        - default: *ioc_limit
+          type: int
+          # https://otx.alienvault.com/pulse/62637949a39428085f129938
+          help: Set pulse IOCs size limit. Ignore pulses with indicators largers than this total.
+    forms:
+      output:
+        - media:news
+
+  - name: aob.otx.pulses.byusername
+    descr: Retrieve pulses published by a specific username.
+    # Do not allow to run as root.
+    asroot: False
+    # User perms required to acces this command?
+    perms:
+      - [power-ups, aob, otx, user]
+    cmdargs:
+      - - username
+        - type: str
+          help: OTX Pulse IDs
+
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --size
+        - default: ~
+          type: int
+          help: Limit number of yielded results.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+      - - --asof
+        - default: *asof
+          help: Specify the maximum age for a cached result. To disable caching, use --asof now.
+          type: str
+
+      - - --iocs
+        - default: false
+          action: store_true
+          # https://otx.alienvault.com/pulse/62637949a39428085f129938
+          help: Retrieve indicators? Some pulses are huge and not worth pulling in 60,000 IPs.
+          type: bool
+
+      - - --ioc_limit
+        - default: *ioc_limit
+          type: int
+          # https://otx.alienvault.com/pulse/62637949a39428085f129938
+          help: Set pulse IOCs size limit. Ignore pulses with indicators largers than this total.
+
+      - - --since
+        - type: str
+          default: "-1 days"
+          help: |
+            Specify a modified since value. E.g.: "-1 days" "2022-03-01T00:00:00Z"
+    forms:
+      output:
+        - media:news
+
+  - name: aob.otx.pulses.subscribed
+    descr: Retrieve subscribed pulses.
+    # Do not allow to run as root.
+    asroot: False
+    # User perms required to acces this command?
+    perms:
+      - [power-ups, aob, otx, user]
+    cmdargs:
+      - - --since
+        - type: str
+          default: "-1 days"
+          help: |
+            Specify a modified since value. E.g.: "-1 days" "2022-03-01T00:00:00Z"
+
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --size
+        - default: ~
+          type: int
+          help: Limit number of yielded results.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+      - - --asof
+        - default: *asof
+          help: Specify the maximum age for a cached result. To disable caching, use --asof now.
+          type: str
+
+      - - --iocs
+        - default: false
+          action: store_true
+          # https://otx.alienvault.com/pulse/62637949a39428085f129938
+          help: Retrieve indicators? Some pulses are huge and not worth pulling in 60,000 IPs.
+          type: bool
+
+      - - --ioc_limit
+        - default: *ioc_limit
+          type: int
+          # https://otx.alienvault.com/pulse/62637949a39428085f129938
+          help: Set pulse IOCs size limit. Ignore pulses with indicators largers than this total.
+
+    forms:
+      output:
+        - media:news
+
+  - name: aob.otx.domain
+    descr: Enrich an FQDN from Alienvault OTX Domain API Endpoint.
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --size
+        - default: ~
+          type: int
+          help: Limit number of yielded results.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+      - - --asof
+        - default: *asof
+          help: Specify the maximum age for a cached result. To disable caching, use --asof now.
+          type: str
+    perms:
+      - [power-ups, aob, otx, user]
+    forms:
+      input:
+        - inet:fqdn
+      output:
+        - inet:fqdn
+
+  - name: aob.otx.ip
+    descr: Enrich an IP address (IPv4 or IPV6).
+    asroot: False
+    cmdargs:
+      - - --debug
+        - default: false
+          action: store_true
+          help: Show verbose debug output.
+          type: bool
+
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
+      - - --size
+        - default: ~
+          type: int
+          help: Limit number of yielded results.
+
+      - - --timeout
+        - default: 0
+          type: int
+          help: Specify a timeout in seconds.
+
+      - - --asof
+        - default: *asof
+          help: Specify the maximum age for a cached result. To disable caching, use --asof now.
+          type: str
+    perms:
+      - [power-ups, aob, otx, user]
+    forms:
+      input:
+        - inet:ipv4
+        - inet:ipv6
+      output:
+        - inet:ipv4
+        - inet:ipv6

@@ -421,7 +421,7 @@ function add_domain_whois(n, api_resp) {
         $lib.print('[arcane::otx::ingest::add_domain_whois]')
     }
 
-    if ($api_resp.count = 0) {yield $lib.null}
+    if ($api_resp."count" = 0) {stop}
     $whois_data = $api_resp.data
     $name_servers = $lib.set()
     $whois_rec = $lib.dict()
@@ -538,6 +538,10 @@ function add_domain_whois(n, api_resp) {
         [:$k=$v]
     }}
     [ <(seen)+ { yield $srcnode } ]
+
+    {for $related in $api_resp.related {
+        [inet:fqdn?=$related]
+    }}
 
     {for $ns in $name_servers {
         $add_whois_recns($ns, $node)

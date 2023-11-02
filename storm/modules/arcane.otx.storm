@@ -148,22 +148,53 @@ function enrich_domain2(n, asof) {
     }
 
     tee -p {
-        yield $add_domain_http_scans($n, $asof)
+        //yield $add_domain_http_scans($n, $asof)
+        yield $enrich_domain_by_section($n, "general", $asof)
     }
     {
-        yield $_add_pdns($n, $asof)
+        //yield $_add_pdns($n, $asof)
+        yield $enrich_domain_by_section($n, "passive_dns", $asof)
     }
     {
-        yield $_add_domain_general($n, $asof)
+        //yield $_add_domain_general($n, $asof)
+        yield $enrich_domain_by_section($n, "http_scans", $asof)
     }
     {
-        yield $add_url_list($n, $asof)
+        //yield $add_url_list($n, $asof)
+        yield $enrich_domain_by_section($n, "url_list", $asof)
     }
     {
-        yield $add_domain_whois($n, $asof)
+        //yield $add_domain_whois($n, $asof)
+        yield $enrich_domain_by_section($n, "whois", $asof)
     }
 }
 
+function enrich_domain_by_section(n, section, asof) {
+
+    if $lib.debug {
+        $lib.print('[arcane::otx::enrich_domain_by_section]')
+    }
+
+    $f_genr = $lib.dict(
+        "general"       = $add_domain_general,
+        "http_scans"    = $ingest.add_domain_http_scans,
+        "url_list"      = $ingest.add_url_list,
+        "passive_dns"   = $add_pdns,
+        "whois"         = $ingest.add_domain_whois
+    )
+
+    $func = $f_genr.$section
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_domain($n, $section, $page, $asof)
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $func($n, $http_resp)
+    }
+}
 function _add_pdns(n, asof) {
     if $lib.debug {
         $lib.print('[arcane::otx::_add_pdns]')

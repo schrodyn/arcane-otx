@@ -142,6 +142,11 @@ commands:
           help: Show verbose debug output.
           type: bool
 
+      - - --yield
+        - default: false
+          action: store_true
+          help: Yield the newly created nodes.
+
       - - --size
         - default: ~
           type: int

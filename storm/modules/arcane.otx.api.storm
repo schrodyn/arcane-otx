@@ -36,13 +36,12 @@ function http_get(api_url, params=$lib.null, asof=$modconf.asof) {
         "X-OTX-API-KEY" = $apiKey
     )
 
-    // lib.jsonstor.cacheget(path, key, asof=now, envl=$lib.false)
     $cache_path = ("power-ups", "arcane-otx", "cache")
     $cache_key = $lib.guid($api_url, $headers, $params)
     $cache_hit = $lib.jsonstor.cacheget($cache_path, $cache_key, $asof)
     if $cache_hit {
         if $lib.debug {
-            $lib.print('Cache hit! {cache_path}:{cache_key}',
+            $lib.print('[arcane::otx::api::http_get] Cache hit! {cache_path}:{cache_key}',
                 cache_path = $cache_path,
                 cache_key=$cache_key
             )

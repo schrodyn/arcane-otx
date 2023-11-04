@@ -297,7 +297,8 @@ function add_pulse_iocs(iocs, pulse_tags, media_node) {
     for $ioc in $iocs {
         $add_pulse_ioc($ioc, $pulse_tags, $media_node)
     }
-    return($lib.null)
+    // TODO: CHECK
+    fini{return($lib.null)}
 }
 
 function add_pulse_ioc(pulse_ioc, pulse_tags, media_node) {
@@ -380,7 +381,7 @@ function add_url_list(n, api_resp) {
         $lib.print('[arcane::otx::ingest::add_url_list]')
     }
     for $entry in $api_resp.url_list {
-        if ($entry.httpcode != 0) {
+        if ($entry.http_code != $lib.null and $entry.httpcode != 0) {
             $guid = $lib.guid(
                 "alienvault",
                 "otx",
@@ -435,6 +436,17 @@ function add_domain_whois(n, api_resp) {
         Gotta find the parent domain
     */
 
+    /*{
+        "data": [
+            {
+                "key": "status",
+                "name": "Status",
+                "value": "ok https://icann.org/epp#ok"
+            }
+        ],
+        "count": 1,
+        "related": []
+    }*/
     // Yes, I need this. Uh.
     for $entry in $whois_data {
         if ($entry.key.strip() = 'domain_name') {
@@ -442,7 +454,7 @@ function add_domain_whois(n, api_resp) {
         }
     }
 
-    if (not $fqdn) {yield $lib.null}
+    if (not $fqdn) {stop}
 
     /*
         Spent time looking at my own domains through OTX whois API and

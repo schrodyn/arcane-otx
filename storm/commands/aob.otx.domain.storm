@@ -8,5 +8,5 @@ init {
 }
 
 if $node {
-    divert --size $cmdopts.size $cmdopts.yield $otx.enrich_domain2($node, $cmdopts.asof)
+    divert --size $cmdopts.size $cmdopts.yield $otx.enrich_domain($node, $cmdopts.asof)
 }

@@ -624,8 +624,8 @@ function add_http_scan(data) {
 
     for ($k, $v) in $data {
         switch $k.strip() {
-            "80 a_domains": {[inet:fqdn=$v]}
-            "80 script_domains": {[inet:fqdn=$v]}
+            "80 a_domains": {[inet:fqdn?=$v]}
+            "80 script_domains": {[inet:fqdn?=$v]}
             "80 script_urls": {[inet:url=$v]}
             "80 body": {}
             "80 header": {}

@@ -73,6 +73,7 @@ function pulses(
 
     for $pulseid in $pulseids {
         $pulse = $api.get_pulse($pulseid, $asof)
+        if (not $pulse) {continue}
 
         $media_node = $ingest.add_pulse($pulse)
 

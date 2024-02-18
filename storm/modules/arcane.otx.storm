@@ -64,7 +64,8 @@ function pulses(
     pulseids,
     asof,
     add_iocs,
-    ioc_limit
+    ioc_limit,
+    n=$lib.null
 ) {
 
     if $lib.debug {
@@ -75,7 +76,7 @@ function pulses(
         $pulse = $api.get_pulse($pulseid, $asof)
         if (not $pulse) {continue}
 
-        $media_node = $ingest.add_pulse($pulse)
+        $media_node = $ingest.add_pulse($pulse, $n)
 
         if $add_iocs {
             if $lib.debug {
@@ -224,7 +225,7 @@ function add_domain_general(n, api_resp) {
         $pulse_ids.append($pulse.id)
     }
     // Just get the pulses. Don't retrieve the IOCs too.
-    yield $pulses($pulse_ids, "-30 days", $lib.false, 0)
+    yield $pulses($pulse_ids, "-30 days", $lib.false, 0, $n)
 }
 
 function pulses_subscribed(
@@ -359,6 +360,6 @@ function add_ip_general(n, api_resp) {
         $pulse_ids.append($pulse.id)
     }
     // Just get the pulses. Don't retrieve the IOCs too.
-    yield $pulses($pulse_ids, "-30 days", $lib.false, 0)
+    yield $pulses($pulse_ids, "-30 days", $lib.false, 0, $n)
 }
 // EOF

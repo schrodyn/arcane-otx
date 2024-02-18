@@ -183,7 +183,7 @@ function add_dns(entry, n=$lib.null) {
     [ <(seen)+ { yield $srcnode } ]
 }
 
-function add_pulse(pulse) {
+function add_pulse(pulse, n=$lib.null) {
 
     /*
       Learning from Slack that meta source initialised when ingestion
@@ -266,6 +266,10 @@ function add_pulse(pulse) {
         for $malware in $pulse.malware_families {
             [ +(refs)> {[ it:prod:softname?=$malware <(seen)+ { yield $srcnode } ]} ]
         }
+    }
+
+    if $n {
+        [ +(pubioc)> { yield $n } ]
     }
 
     [ <(seen)+ { yield $srcnode } ]

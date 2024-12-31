@@ -138,30 +138,25 @@ function emit_pulse_indicators(
 
     $api_base_url = $modconf.api_url
 
-    if $lib.debug {
-        $lib.print(
-            '[arcane::otx::api::emit_pulse_indicators] Retrieving indicators for {pulseid}',
-            pulseid=$pulseid
-        )
-    }
-
     $api_url = $lib.str.format(
         "{api_base_url}/pulses/{pulseid}/indicators",
         api_base_url=$api_base_url,
         pulseid=$pulseid
     )
 
-    // $next_page = $lib.true
-    $params = ({})
-    $params.page = 1
-    $params.limit = 500 // Limit IOCs per page. Helps with stopping OTX API HTTP 5xx errors.
+    $params = ({
+        "page":  1,
+        "limit": 500 // Limit IOCs per page. Helps with stopping OTX API HTTP 5xx errors.
+    })
 
     while (1) {
-        $lib.print(
-            '[arcane::otx::api::emit_pulse_indicators] Retrieving indicators for {pulseid} page={page}',
-            pulseid = $pulseid,
-            page = $params.page
-        )
+        if $lib.debug {
+            $lib.print(
+                '[arcane::otx::api::emit_pulse_indicators] Retrieving indicators for {pulseid} page={page}',
+                pulseid = $pulseid,
+                page = $params.page
+            )
+        }
 
         $http_resp = $http_get($api_url, $params, $asof)
         $iocs = $http_resp.results
@@ -172,7 +167,6 @@ function emit_pulse_indicators(
 
         if ($http_resp.next = $lib.null) { stop }
         $params.page = ($params.page + 1)
-        $next_page = $http_resp.next
     }
 }
 
@@ -204,6 +198,47 @@ function get_pulse_indicators(
     $params.limit=$ioc_limit
 
     return($http_get($api_url, $params, $asof))
+}
+
+function emit_pulse_ids_subscribed(
+    modified_since,
+    asof=$modconf.asof
+) {
+
+    $api_base_url = $modconf.api_url
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::emit_pulse_ids_subscribed] Retrieving subscribed pulses since {since}',
+            since=$modified_since
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/subscribed",
+        api_base_url=$api_base_url
+    )
+
+    $params = ({
+        "page": 1,
+        "modified_since": $modified_since,
+
+        // Kept this low to prevent some API timeouts retrieving larger numbers
+        // of pulses. Some pulses can have a huge number of indicators and
+        // retrieving a lot of pulses tends to generate HTTP 5xx errors.
+        "limit": 10
+    })
+
+    while (1) {
+        $http_resp = $http_get($api_url, $params, $asof)
+
+        $pulses = $http_resp.results
+        for $pulse in $pulses {
+            emit $pulse.id
+        }
+
+        if ($http_resp.next = $lib.null) { stop }
+        $params.page = ($params.page + 1)
+    }
 }
 
 function get_pulses_subscribed(

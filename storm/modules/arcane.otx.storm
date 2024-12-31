@@ -250,25 +250,8 @@ function pulses_subscribed(
     // modified within a certain period. Don't know, don't care. Hammer time.
     $pulse_ids = $lib.list()
 
-    // New workflow:
-    // 1. Get subscribed pulses.
-    // 2. Get entire pulse.
-    // 3. Yield nodes.
-    while ($next_page != $lib.null) {
-
-        $http_resp = $api.get_pulses_subscribed(
-            $modified_since,
-            $page,
-            $asof
-        )
-
-        $results = $http_resp.results
-        $page = ($page + 1)
-        $next_page = $http_resp.next
-
-        for $pulse in $results {
-            $pulse_ids.append($pulse.id)
-        }
+    for $pulse_id in $api.emit_pulse_ids_subscribed($modified_since, $asof) {
+        $pulse_ids.append($pulse_id)
     }
 
     yield $pulses($pulse_ids, $asof, $add_iocs)

@@ -210,6 +210,7 @@ function add_pulse(pulse, n=$lib.null) {
         :summary?=$pulse.description
         :published?=$pulse.created
         :ext:id?=$pulse.id
+        :type=alienvault.otx.pulse
     ]
 
     $ioc_tags = $lib.tags.prefix($pulse.tags, $tag_prefix)

@@ -60,11 +60,16 @@ function add_pdns(n, api_resp) {
     }
 }
 
+/* Create a media:news node from OTX Pules.
+
+This creates a media:news node from an OTX Pulese ID. Pulese information is
+always retrieved and used for secondary properties. Optional is to retrieve
+indicators for each pulse ID provided.
+*/
 function pulses(
     pulseids,
     asof,
     add_iocs,
-    ioc_limit,
     n=$lib.null
 ) {
 
@@ -82,24 +87,9 @@ function pulses(
             if $lib.debug {
                 $lib.print('[arcane::otx::pulses] Adding IOCs')
             }
-            $next_page = $lib.true
-            $page = 1
 
-            while ($next_page != $lib.null) {
-                $http_resp = $api.get_pulse_indicators(
-                    $pulseid,
-                    $page,
-                    $ioc_limit, // TODO: Count be smaller than count
-                    $asof
-                )
-
-                $iocs = $http_resp.results
-                $next_page = $http_resp.next
-                $page = ($page + 1)
-
-                $ingest.add_pulse_iocs(
-                    $iocs, $pulse.tags, $media_node
-                )
+            for $ioc in $api.emit_pulse_indicators($pulseid, $asof) {
+                $ingest.add_pulse_ioc($ioc, $pulse.tags, $media_node)
             }
         }
         yield $media_node
@@ -134,13 +124,13 @@ function enrich_domain_by_section(n, section, asof) {
         $lib.print('[arcane::otx::enrich_domain_by_section]')
     }
 
-    $f_genr = $lib.dict(
-        "general"       = $add_domain_general,
-        "http_scans"    = $ingest.add_domain_http_scans,
-        "url_list"      = $ingest.add_url_list,
-        "passive_dns"   = $add_pdns,
-        "whois"         = $ingest.add_domain_whois
-    )
+    $f_genr = ({
+        "general": $add_domain_general,
+        "http_scans": $ingest.add_domain_http_scans,
+        "url_list": $ingest.add_url_list,
+        "passive_dns": $add_pdns,
+        "whois": $ingest.add_domain_whois
+    })
 
     $func = $f_genr.$section
     $page = (1)
@@ -252,9 +242,20 @@ function pulses_subscribed(
         '%Y-%m-%dT%H:%M:%S+00:00'
     )
 
+    // Going to collect all the IDs for subscribed pulses and then perform
+    // additional requests to get indicators for each pulse. The reason for
+    // this is observations made during API testing seems to indicate that I
+    // won't get all the indicators of a pulse and the documentation doesn't
+    // really explain why. Perhaps I'm only getting indicators that were
+    // modified within a certain period. Don't know, don't care. Hammer time.
     $pulse_ids = $lib.list()
 
+    // New workflow:
+    // 1. Get subscribed pulses.
+    // 2. Get entire pulse.
+    // 3. Yield nodes.
     while ($next_page != $lib.null) {
+
         $http_resp = $api.get_pulses_subscribed(
             $modified_since,
             $page,
@@ -270,7 +271,7 @@ function pulses_subscribed(
         }
     }
 
-    yield $pulses($pulse_ids, $asof, $add_iocs, $ioc_limit)
+    yield $pulses($pulse_ids, $asof, $add_iocs)
 }
 
 function pulses_byusername(
@@ -317,7 +318,7 @@ function pulses_byusername(
         }
     }
 
-    yield $pulses($pulse_ids, $asof, $add_iocs, $ioc_limit)
+    yield $pulses($pulse_ids, $asof, $add_iocs)
 }
 function enrich_ip(n, asof) {
 
@@ -326,13 +327,13 @@ function enrich_ip(n, asof) {
     }
 
     // section_name = section_process_function
-    $f_genr = $lib.dict(
-        "general"       = $add_ip_general,
-        "geo"           = $ingest.add_ip_geo,
-        "http_scans"    = $ingest.add_domain_http_scans,
-        "url_list"      = $ingest.add_url_list,
-        "passive_dns"   = $add_pdns,
-    )
+    $f_genr = ({
+        "general": $add_ip_general,
+        "geo": $ingest.add_ip_geo,
+        "http_scans": $ingest.add_domain_http_scans,
+        "url_list": $ingest.add_url_list,
+        "passive_dns": $add_pdns,
+    })
 
     for ($section, $func) in $f_genr {
         $page = (1)
@@ -360,6 +361,6 @@ function add_ip_general(n, api_resp) {
         $pulse_ids.append($pulse.id)
     }
     // Just get the pulses. Don't retrieve the IOCs too.
-    yield $pulses($pulse_ids, "-30 days", $lib.false, 0, $n)
+    yield $pulses($pulse_ids, "-30 days", $lib.false, $n)
 }
 // EOF

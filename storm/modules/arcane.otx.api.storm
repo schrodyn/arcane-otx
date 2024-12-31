@@ -31,10 +31,10 @@ function http_get(api_url, params=$lib.null, asof=$modconf.asof) {
         $lib.print('[arcane::otx::api::http_get] API URL {url}', url=$api_url)
     }
 
-    $headers = $lib.dict(
-        "Accept" = "application/json",
-        "X-OTX-API-KEY" = $apiKey
-    )
+    $headers = ({
+        "Accept": "application/json",
+        "X-OTX-API-KEY": $apiKey
+    })
 
     $cache_path = ("power-ups", "arcane-otx", "cache")
     $cache_key = $lib.guid($api_url, $headers, $params)
@@ -101,7 +101,7 @@ function get_indicators_domain(
         section=$section
     )
 
-    $params = $lib.dict()
+    $params = ({})
     if $page {
         $params.page=$page
     }
@@ -130,6 +130,52 @@ function get_pulse(pulseid, asof=$modconf.asof) {
     return($http_get($api_url, asof=$asof))
 }
 
+// TODO: Implement ioc_limit stopping at N number of nodes retrieved per pulse.
+function emit_pulse_indicators(
+    pulseid,
+    asof=$modconf.asof
+) {
+
+    $api_base_url = $modconf.api_url
+
+    if $lib.debug {
+        $lib.print(
+            '[arcane::otx::api::emit_pulse_indicators] Retrieving indicators for {pulseid}',
+            pulseid=$pulseid
+        )
+    }
+
+    $api_url = $lib.str.format(
+        "{api_base_url}/pulses/{pulseid}/indicators",
+        api_base_url=$api_base_url,
+        pulseid=$pulseid
+    )
+
+    // $next_page = $lib.true
+    $params = ({})
+    $params.page = 1
+    $params.limit = 500 // Limit IOCs per page. Helps with stopping OTX API HTTP 5xx errors.
+
+    while (1) {
+        $lib.print(
+            '[arcane::otx::api::emit_pulse_indicators] Retrieving indicators for {pulseid} page={page}',
+            pulseid = $pulseid,
+            page = $params.page
+        )
+
+        $http_resp = $http_get($api_url, $params, $asof)
+        $iocs = $http_resp.results
+
+        for $ioc in $iocs {
+            emit $ioc
+        }
+
+        if ($http_resp.next = $lib.null) { stop }
+        $params.page = ($params.page + 1)
+        $next_page = $http_resp.next
+    }
+}
+
 // pulses/{pulse_id}/indicators
 function get_pulse_indicators(
     pulseid,
@@ -153,7 +199,7 @@ function get_pulse_indicators(
         pulseid=$pulseid
     )
 
-    $params = $lib.dict()
+    $params = ({})
     $params.page=$page
     $params.limit=$ioc_limit
 
@@ -179,14 +225,19 @@ function get_pulses_subscribed(
         api_base_url=$api_base_url
     )
 
-    $params = $lib.dict(
-        page=$page,
-        modified_since=$modified_since,
-        limit=10
-    )
+    $params = ({
+        "page": $page,
+        "modified_since": $modified_since,
+
+        // Kept this low to prevent some API timeouts retrieving larger numbers
+        // of pulses. Some pulses can have a huge number of indicators and
+        // retrieving a lot of pulses tends to generate HTTP 5xx errors.
+        "limit": 10
+    })
 
     return($http_get($api_url, $params, $asof))
 }
+
 function get_pulses_username(
     username,
     modified_since,
@@ -209,9 +260,9 @@ function get_pulses_username(
         username=$username
     )
 
-    $params = $lib.dict(
-        page=$page
-    )
+    $params = ({
+        "page": $page
+    })
 
     if $modified_since {
         $params.since=$modified_since
@@ -260,7 +311,7 @@ function get_indicators_ip(
         section=$section
     )
 
-    $params = $lib.dict()
+    $params = ({})
     $params.page=$page
 
     return($http_get($api_url, $params, $asof))

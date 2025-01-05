@@ -132,7 +132,7 @@ function add_pdns(n, api_resp) {
     }
 }
 
-// TODO Add xref
+// TODO: Add xref
 function add_domain_general(n, api_resp) {
     if $lib.debug {
         $lib.print('[arcane::otx::add_domain_general]')
@@ -214,35 +214,26 @@ function pulses_byusername(
 
     yield $pulses($pulse_ids, $asof, $add_iocs)
 }
-function enrich_ip(n, asof) {
 
+function enrich_ip(n, asof) {
     if $lib.debug {
         $lib.print('[arcane::otx::enrich_ip]')
     }
 
-    // section_name = section_process_function
-    $f_genr = ({
-        "general": $add_ip_general,
-        "geo": $ingest.add_ip_geo,
-        "http_scans": $ingest.add_domain_http_scans,
-        "url_list": $ingest.add_url_list,
-        "passive_dns": $add_pdns,
-    })
-
-    for ($section, $func) in $f_genr {
-        $page = (1)
-        $has_next = $lib.true
-
-        while $has_next {
-            $http_resp = $api.get_indicators_ip(
-                            $n, $section, $page, $asof
-                         )
-
-            if (not $http_resp) {break}
-            $has_next = $http_resp.next
-            $page = ($page + 1)
-            yield $func($n, $http_resp)
-        }
+    tee -p {
+        yield $enrich_ip_by_section($n, "general", $asof)
+    }
+    {
+        yield $enrich_ip_by_section($n, "passive_dns", $asof)
+    }
+    {
+        yield $enrich_ip_by_section($n, "http_scans", $asof)
+    }
+    {
+        yield $enrich_ip_by_section($n, "url_list", $asof)
+    }
+    {
+        yield $enrich_ip_by_section($n, "geo", $asof)
     }
 }
 
@@ -257,4 +248,32 @@ function add_ip_general(n, api_resp) {
     // Just get the pulses. Don't retrieve the IOCs too.
     yield $pulses($pulse_ids, "-30 days", $lib.false, $n)
 }
+
+function enrich_ip_by_section(n, section, asof) {
+
+    if $lib.debug {
+        $lib.print('[arcane::otx::enrich_ip_by_section]')
+    }
+
+    $f_genr = ({
+        "general": $add_ip_general,
+        "geo": $ingest.add_ip_geo,
+        "http_scans": $ingest.add_domain_http_scans,
+        "url_list": $ingest.add_url_list,
+        "passive_dns": $add_pdns,
+    })
+
+    $func = $f_genr.$section
+    $page = (1)
+    $has_next = $lib.true
+
+    while $has_next {
+        $http_resp = $api.get_indicators_ip($n, $section, $page, $asof)
+        if (not $http_resp) {break}
+        $has_next = $http_resp.next
+        $page = ($page + 1)
+        yield $func($n, $http_resp)
+    }
+}
+
 // EOF

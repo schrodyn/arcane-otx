@@ -12,51 +12,26 @@ function pdns(n, asof) {
         $lib.print('[arcane::otx::pdns]')
     }
 
-    switch $n.form() {
-        "inet:fqdn": {
-            yield $get_add_pdns($n, $asof)
-        }
-        "inet:ipv4": {
-            yield $get_add_pdns($n, $asof)
-        }
-        "inet:ipv6": {
-            yield $get_add_pdns($n, $asof)
-        }
-        *: {
-            $lib.warn("[arcane::otx::pdns] Unsupported node: {n}", n=$n.ndef())
-        }
-    }
-}
-
-function get_add_pdns(n, asof) {
-    if $lib.debug {
-        $lib.print('[arcane::otx::get_add_pdns]')
-    }
+    $api_resp = $lib.null
 
     switch $n.form() {
-        "inet:ipv4": {
-            $api_resp = $api.get_indicators_ip($n, 'passive_dns', asof=$asof)
-        }
-        "inet:ipv6": {
-            $api_resp = $api.get_indicators_ip($n, 'passive_dns', asof=$asof)
-        }
         "inet:fqdn": {
             $api_resp = $api.get_indicators_domain($n, 'passive_dns', asof=$asof)
         }
+        "inet:ipv4": {
+            $api_resp = $api.get_indicators_ip($n, 'passive_dns', asof=$asof)
+        }
+        "inet:ipv6": {
+            $api_resp = $api.get_indicators_ip($n, 'passive_dns', asof=$asof)
+        }
+        *: {
+            $lib.warn("[arcane::otx::pdns] Unsupported node: {n}", n=$n.ndef())
+            yield $lib.null
+        }
     }
 
-    yield $add_pdns($n, $api_resp)
-}
-
-function add_pdns(n, api_resp) {
-    if $lib.debug {
-        $lib.print('[arcane::otx::add_pdns]')
-    }
-
-    $passive_dns = $api_resp.passive_dns
-    for $entry in $passive_dns {
-        if ($entry.address = "NXDOMAIN") {continue}
-        yield $ingest.add_dns($entry, $n)
+    if ($api_resp != $lib.null) {
+        yield $add_pdns($n, $api_resp)
     }
 }
 
@@ -145,63 +120,15 @@ function enrich_domain_by_section(n, section, asof) {
     }
 }
 
-function add_domain_http_scans(n, asof) {
+function add_pdns(n, api_resp) {
     if $lib.debug {
-        $lib.print('[arcane::otx::add_domain_http_scans]')
+        $lib.print('[arcane::otx::add_pdns]')
     }
 
-    $page = (1)
-    $has_next = $lib.true
-
-    while $has_next {
-        $http_resp = $api.get_indicators_domain(
-                        $n, "http_scans", $page, $asof
-                     )
-
-        if (not $http_resp) {break}
-        $has_next = $http_resp.next
-        $page = ($page + 1)
-        yield $ingest.add_domain_http_scans($n, $http_resp)
-    }
-}
-
-/*function add_url_list(n, asof) {
-    if $lib.debug {
-        $lib.print('[arcane::otx::add_url_list]')
-    }
-
-    $page = (1)
-    $has_next = $lib.true
-
-    while $has_next {
-        $http_resp = $api.get_indicators_domain(
-                        $n, "url_list", $page, $asof
-                     )
-
-        if (not $http_resp) {break}
-        $has_next = $http_resp.next
-        $page = ($page + 1)
-        yield $ingest.add_url_list($n, $http_resp)
-    }
-}*/
-
-function add_domain_whois(n, asof) {
-    if $lib.debug {
-        $lib.print('[arcane::otx::add_domain_whois]')
-    }
-
-    $page = (1)
-    $has_next = $lib.true
-
-    while $has_next {
-        $http_resp = $api.get_indicators_domain(
-                        $n, "whois", $page, $asof
-                     )
-
-        if (not $http_resp) {break}
-        $has_next = $http_resp.next
-        $page = ($page + 1)
-        yield $ingest.add_domain_whois($n, $http_resp)
+    $passive_dns = $api_resp.passive_dns
+    for $entry in $passive_dns {
+        if ($entry.address = "NXDOMAIN") {continue}
+        yield $ingest.add_dns($entry, $n)
     }
 }
 
@@ -215,7 +142,7 @@ function add_domain_general(n, api_resp) {
         $pulse_ids.append($pulse.id)
     }
     // Just get the pulses. Don't retrieve the IOCs too.
-    yield $pulses($pulse_ids, "-30 days", $lib.false, 0, $n)
+    yield $pulses($pulse_ids, "-30 days", $lib.false, $n)
 }
 
 function pulses_subscribed(
@@ -274,9 +201,6 @@ function pulses_byusername(
         yield $lib.null
     }
 
-    $page=(1)
-    $next_page = $lib.true
-
     $modified_since = $lib.time.format(
         $modified_since,
         '%Y-%m-%dT%H:%M:%S+00:00'
@@ -284,21 +208,8 @@ function pulses_byusername(
 
     $pulse_ids = $lib.list()
 
-    while ($next_page != $lib.null) {
-        $http_resp = $api.get_pulses_username(
-            $username,
-            $modified_since,
-            $page,
-            $asof
-        )
-
-        $results = $http_resp.results
-        $page = ($page + 1)
-        $next_page = $http_resp.next
-
-        for $pulse in $results {
-            $pulse_ids.append($pulse.id)
-        }
+    for $pulse in $api.emit_pulses_username($username, $modified_since, $asof) {
+        $pulse_ids.append($pulse.id)
     }
 
     yield $pulses($pulse_ids, $asof, $add_iocs)

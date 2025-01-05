@@ -590,15 +590,15 @@ function add_domain_http_scans(n, api_resp) {
         $lib.print('[arcane::otx::ingest::add_domain_http_scans]')
     }
 
-    $f_genr = $lib.dict(
-        "http"      = $add_http_scan,
-        "https"     = $add_https_scan,
-    )
+    $f_genr = ({
+        "http": $add_http_scan,
+        "https": $add_https_scan,
+    })
 
-    $sections = $lib.dict(
-        "http"  = $lib.dict(),
-        "https" = $lib.dict()
-    )
+    $sections = ({
+        "http": ({}),
+        "https": ({})
+    })
 
     for $entry in $api_resp.data {
         if $entry.key.startswith("80") {
